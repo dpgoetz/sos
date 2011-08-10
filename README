@@ -1,0 +1,5 @@
+Swift Origin Server
+-------------------
+
+A WSGI Middleware that provides access to customer containers in Swift for use
+by a CDN service.  Uses Swift itself as its back-end store.
