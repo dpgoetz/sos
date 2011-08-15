@@ -23,11 +23,11 @@ from ConfigParser import RawConfigParser
 from swift.common.utils import get_logger, split_path, get_param, \
     TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
+from swift.common.wsgi import make_pre_authed_request
 try:
     import simplejson as json
 except ImportError:
     import json
-
 
 MIN_TTL = 900
 MAX_TTL = 3155692600
@@ -44,7 +44,7 @@ class HashData(object):
     '''
     object to keep track on json data files
     '''
-    def __init__(self, account, container, ttl='259200', cdn_enabled='true', logs_enabled='false'):
+    def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
         self.account = account
         self.container = container
         self.ttl = ttl
@@ -96,42 +96,15 @@ class OriginBase(object):
         '''
         # get defaults
         #TODO: I think I should cache this in memcache later
-        resp = self.make_request(env, 'GET',
-                                 cdn_obj_path).get_response(self.app)
+        # if i do this then i'll have to clear it on PUTs / POSTs
+        resp = make_pre_authed_request(env, 'GET',
+            cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
         if resp.status_int // 100 == 2:
             try:
                 return HashData.create_from_json(resp.body)
             except ValueError:
                 pass # TODO: ignore json errors in the data files, ok right?
         return None
-
-    def make_request(self, env, method, path, body=None, headers=None):
-        """
-        Makes a new webob.Request based on the current env but with the
-        parameters specified. Note that this request will be preauthorized.
-
-        :param env: Current WSGI environment dictionary
-        :param method: HTTP method of new request
-        :param path: HTTP path of new request
-        :param body: HTTP body of new request; None by default
-        :param headers: Extra HTTP headers of new request; None by default
-
-        :returns: webob.Request object
-        (Stolen from Swauth: https://github.com/gholt/swauth)
-        """
-        newenv = {'REQUEST_METHOD': method, 'HTTP_USER_AGENT': 'SwiftOrigin'}
-        for name in ('swift.cache', 'HTTP_X_CF_TRANS_ID'):
-            if name in env:
-                newenv[name] = env[name]
-        newenv['swift.authorize'] = lambda req: None
-        if not headers:
-            headers = {}
-        if body:
-            return Request.blank(path, environ=newenv, body=body,
-                                 headers=headers)
-        else:
-            return Request.blank(path, environ=newenv, headers=headers)
-
 
 class AdminHandler(OriginBase):
 
@@ -168,17 +141,17 @@ class AdminHandler(OriginBase):
             return HTTPNotFound(request=req)
         if account == '.prep':
             path = '/v1/%s' % self.origin_account
-            resp = self.make_request(req.environ, 'PUT',
-                                     path).get_response(self.app)
+            resp = make_pre_authed_request(req.environ, 'PUT',
+                path, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int // 100 != 2:
                 raise Exception('Could not create the main origin account: %s %s' %
                                 (path, resp.status))
             #TODO : is it worth it making 0-15 containers so they don't get
             # too big?  for now i'm gona leave it with just one.
-            for cont_name in ['.id', '.hash']: #TODO: right now not using .id
+            for cont_name in ['.hash_to_legacy_cdn', '.hash']:
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
-                resp = self.make_request(req.environ, 'PUT',
-                                         path).get_response(self.app)
+                resp = make_pre_authed_request(req.environ, 'PUT',
+                    path, agent='SwiftOrigin').get_response(self.app)
                 if resp.status_int // 100 != 2:
                     raise Exception('Could not create %s container: %s %s' %
                                     (cont_name, path, resp.status))
@@ -198,11 +171,10 @@ class CdnHandler(OriginBase):
             if key.startswith('cdn_uri_regex_'):
                 self.cdn_regexes.append(self.conf[key])
 
-    def _setCacheHeaders(self, request, ttl):
-        #TODO: need to verify that these are set in tests
-        request.headers['Expires'] = strftime("%a, %d %b %Y %H:%M:%S GMT",
-                                              gmtime(time() + ttl))
-        request.headers['Cache-Control'] = 'max-age:%d, public' % ttl
+    def _getCacheHeaders(self, ttl):
+        return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
+                                    gmtime(time() + ttl)),
+                'Cache-Control': 'max-age:%d, public' % ttl}
 
     def _getCdnHeaders(self, req):
         headers = {}
@@ -213,23 +185,21 @@ class CdnHandler(OriginBase):
 
     def handle_request(self, env, req):
         if req.method not in ('GET', 'HEAD'):
-            self._setCacheHeaders(req, CACHE_BAD_URL)
-            return HTTPMethodNotAllowed(request=req)
+            headers = self._getCacheHeaders(CACHE_BAD_URL)
+            return HTTPMethodNotAllowed(request=req, headers=headers)
 
         hsh = None
         object_name = None
         for regex in self.cdn_regexes:
-#            self.logger.info('lalalalala: %s :::: %s ::: %s ::: %s' % (hsh, object_name, regex, req.url))
             match_obj = re.match(regex, req.url)
             if match_obj:
                 match_dict = match_obj.groupdict()
                 hsh = match_dict.get('cdn_hash')
                 object_name = match_dict.get('object_name')
-#        self.logger.info('mooooo: %s ::: %s' % (hsh, object_name))
 
         if not (hsh and object_name):
-            self._setCacheHeaders(req, CACHE_BAD_URL)
-            return HTTPNotFound(request=req)
+            headers = self._getCacheHeaders(req, CACHE_BAD_URL)
+            return HTTPNotFound(request=req, headers=headers)
         cdn_obj_path = '/v1/%s/.hash/%s' % (self.origin_account, hsh)
         hash_data = self._get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
@@ -237,25 +207,23 @@ class CdnHandler(OriginBase):
             swift_path = '/v1/%s/%s/%s' % (hash_data.account,
                                            hash_data.container, object_name)
             headers = self._getCdnHeaders(req)
-#            self.logger.info('ffffffffff: %s' % swift_path)
-            resp = self.make_request(env, req.method, swift_path,
-                                     headers=headers).get_response(self.app)
-
-#            self.logger.info('rrrrrrrrrr: %s ::: %s' % (resp, resp.status_int))
+            resp = make_pre_authed_request(env, req.method, swift_path,
+                headers=headers, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int == 304:
                 return resp
             # we don't have to worry about the 401 case
             if resp.status_int == 404:
-                self._setCacheHeaders(req, CACHE_404)
-                return HTTPNotFound(request=req)
+                self.logger.info('in the 404 ---------------------: %s' % req)
+                return HTTPNotFound(request=req,
+                    headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int == 416:
-                self._setCacheHeaders(req, CACHE_404)
-                return HTTPRequestRangeNotSatisfiable(request=req)
+                return HTTPRequestRangeNotSatisfiable(request=req,
+                    headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int in (200, 206):
                 #TODO: not doing the check for content-length == None ok?
                 if resp.content_length > self.max_cdn_file_size:
-                    self._setCacheHeaders(req, CACHE_404)
-                    return HTTPBadRequest(request=req)
+                    return HTTPBadRequest(request=req,
+                        headers=self._getCacheHeaders(CACHE_404))
                 cdn_resp = Response(request=req, app_iter=resp.app_iter)
                 cdn_resp.status = resp.status_int
                 cdn_resp.last_modified = resp.last_modified
@@ -267,14 +235,13 @@ class CdnHandler(OriginBase):
                     if header_val:
                         cdn_resp.headers[header] = header_val
 
-                self._setCacheHeaders(cdn_resp, hash_data.ttl)
+                headers.update(self._getCacheHeaders(hash_data.ttl))
 
                 return cdn_resp
             self.logger.exception('Unexpected response from Swift: %s, %s' %
                                   (resp.status, cdn_obj_path))
-
-        self._setCacheHeaders(req, CACHE_404)
-        return HTTPNotFound(request=req)
+        return HTTPNotFound(request=req,
+                            headers=self._getCacheHeaders(CACHE_404))
 
 class OriginDbHandler(OriginBase):
     '''
@@ -286,6 +253,13 @@ class OriginDbHandler(OriginBase):
         self.cdn_hostname = conf.get('cdn_uri', 'cf1.rackcdn.com')
         self.cdn_uri_format = conf.get('outgoing_cdn_uri_format')
         self.ssl_cdn_uri_format = conf.get('outgoing_ssl_cdn_uri_format')
+        self.cdn_handler = None
+        cdn_handler_path = conf.get('cdn_handler_class')
+        if cdn_handler_path:
+            module_path, class_name = cdn_handler_path.rsplit('.', 1)
+            module = __import__(module_path, fromlist=[class_name])
+            cdn_handler_class = getattr(module, class_name)
+            self.cdn_handler = cdn_handler_class(conf)
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -309,7 +283,6 @@ class OriginDbHandler(OriginBase):
             except ValueError:
                 raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                     (account, container, cdn_data))
-            #TODO: replace this with function call
             cdn_uri_dict = self._get_cdn_uris(hsh)
         else:
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
@@ -359,8 +332,8 @@ class OriginDbHandler(OriginBase):
         listing_path = '/v1/%s/%s?format=json&marker=%s' % \
                        (self.origin_account, account, marker)
         # not putting limit in request because may have to filter on cdn_enabled
-        resp = self.make_request(env, 'GET',
-                                 listing_path).get_response(self.app)
+        resp = make_pre_authed_request(env, 'GET',
+            listing_path, agent='SwiftOrigin').get_response(self.app)
         resp_headers = {} # {'Transfer-Encoding': 'chunked'} #TODO is this right?
         if resp.status_int // 100 == 2:
             cont_listing = json.loads(resp.body)
@@ -402,7 +375,29 @@ class OriginDbHandler(OriginBase):
 
 
     def origin_db_delete(self, env, req):
-        pass
+        '''
+        Calls cdn_handler's DELETE.
+        '''
+        self.logger.info('mooo: call delete %s' % self.cdn_handler)
+        try:
+           version, account, container, obj = split_path(req.path, 1, 4, True)
+        except ValueError:
+            return HTTPNotFound()
+        hsh = self._hash_path(account, container)
+        urls = self._get_cdn_uris(hsh).values()
+        cdn_success = True
+        if self.cdn_handler:
+            try:
+                self.logger.info('call delete" %s' % urls)
+                cdn_success = self.cdn_handler.DELETE(env, urls, req.headers)
+            except Exception, e:
+                cdn_success = False
+                self.logger.exception('Cdn handler DELETE exception: %s' % e)
+        if cdn_success:
+            return HTTPNoContent(request=req)
+        else:
+            return HTTPBadRequest(request=req)
+
 
     def origin_db_head(self, env, req):
         '''
@@ -428,7 +423,7 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         '''
         try:
-            version, account, container = split_path(req.path, 1, 3, True)
+           version, account, container = split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound()
 
@@ -450,34 +445,35 @@ class OriginDbHandler(OriginBase):
         if ttl < MIN_TTL or ttl > MAX_TTL:
             # TODO: this isn't exactly whats currently there. It only errors on
             # invalid TTLs if the enabled is true or being set to true
-            return HTTPForbidden(
-                _('Invalid X-TTL, must be between %(min)s and %(max)s'),
-                {'min': MIN_TTL, 'max': MAX_TTL})
+            return HttpBadRequest(_('Invalid X-TTL, must be between %(min)s '
+                'and %(max)s'), {'min': MIN_TTL, 'max': MAX_TTL})
         logs_enabled = req.headers.get('X-Log-Retention',
             logs_enabled).lower() in TRUE_VALUES and 'true' or 'false'
         cdn_enabled = req.headers.get('X-CDN-Enabled',
             cdn_enabled).lower() in TRUE_VALUES and 'true' or 'false'
 
-        cdn_data = {'account': account, 'container': container, 'ttl': ttl,
-                    'logs_enabled': logs_enabled, 'cdn_enabled': cdn_enabled}
-        cdn_obj_data = json.dumps(cdn_data)
+        new_hash_data = HashData(account, container, ttl, cdn_enabled,
+                                 logs_enabled)
+#        cdn_data = {'account': account, 'container': container, 'ttl': ttl,
+#                    'logs_enabled': logs_enabled, 'cdn_enabled': cdn_enabled}
+        cdn_obj_data = new_hash_data.get_json_str() #json.dumps(cdn_data)
         cdn_obj_etag = md5(cdn_obj_data).hexdigest()
         # this is always a PUT because a POST needs to update the file
-        cdn_obj_resp = self.make_request(env, 'PUT', cdn_obj_path,
-            body=cdn_obj_data,
-            headers={'Etag': cdn_obj_etag}).get_response(self.app)
+        cdn_obj_resp = make_pre_authed_request(env, 'PUT', cdn_obj_path,
+            body=cdn_obj_data, headers={'Etag': cdn_obj_etag},
+            agent='SwiftOrigin').get_response(self.app)
 
         if cdn_obj_resp.status_int // 100 != 2:
             #TODO: this is not right, need to build a better response
             return cdn_obj_resp
 
         listing_cont_path = '/v1/%s/%s' % (self.origin_account, account)
-        resp = self.make_request(req.environ, 'HEAD',
-                                 listing_cont_path).get_response(self.app)
+        resp = make_pre_authed_request(env, 'HEAD',
+            listing_cont_path, agent='SwiftOrigin').get_response(self.app)
         if resp.status_int == 404:
             # create new container for listings
-            resp = self.make_request(req.environ, 'PUT',
-                                     listing_cont_path).get_response(self.app)
+            resp = make_pre_authed_request(req.environ, 'PUT',
+                listing_cont_path, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int // 100 != 2:
                 raise Exception('Could not create account within '
                     'origin db: %s %s' % (listing_cont_path, resp.status))
@@ -485,19 +481,40 @@ class OriginDbHandler(OriginBase):
         cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
                                           account, container)
 
-        cdn_list_resp = self.make_request(env, req.method, cdn_list_path,
+        cdn_list_resp = make_pre_authed_request(env, req.method, cdn_list_path,
             headers = {'Content-Type':
                 self._gen_listing_content_type(cdn_enabled, ttl, logs_enabled),
-                'Content-Length': 0}).get_response(self.app)
+                'Content-Length': 0},
+                 agent='SwiftOrigin').get_response(self.app)
 
         if cdn_list_resp.status_int // 100 != 2:
             #TODO: this is not right need to build a better response
             return cdn_list_resp
-
+        cdn_success = True
+        cdn_url_headers = self._get_cdn_uris(hsh)
         if req.method == 'POST':
-            return HTTPAccepted(request=req, headers=self._get_cdn_uris(hsh))
+            if self.cdn_handler:
+                try:
+                    cdn_success = self.cdn_handler.POST(
+                        env, cdn_url_headers.values(), req.headers)
+                except Exception, e:
+                    cdn_success = False
+                    self.logger.exception('Cdn handler POST exception: %s' % e)
+            if cdn_success:
+                return HTTPAccepted(request=req,
+                                    headers=cdn_url_headers)
         else:
-            return HTTPCreated(request=req, headers=self._get_cdn_uris(hsh))
+            if self.cdn_handler:
+                try:
+                    cdn_success = self.cdn_handler.PUT(
+                        env, cdn_url_headers.values(), req.headers)
+                except Exception, e:
+                    cdn_success = False
+                    self.logger.exception('Cdn handler PUT exception: %s' % e)
+            if cdn_success:
+                return HTTPCreated(request=req,
+                                   headers=cdn_url_headers)
+        return HTTPBadRequest(request=req)
 
     def handle_request(self, env, req):
         '''
