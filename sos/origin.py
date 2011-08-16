@@ -19,7 +19,6 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable
 from hashlib import md5
 import re
-from ConfigParser import RawConfigParser
 from swift.common.utils import get_logger, split_path, get_param, \
     TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
@@ -213,7 +212,6 @@ class CdnHandler(OriginBase):
                 return resp
             # we don't have to worry about the 401 case
             if resp.status_int == 404:
-                self.logger.info('in the 404 ---------------------: %s' % req)
                 return HTTPNotFound(request=req,
                     headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int == 416:
@@ -259,7 +257,7 @@ class OriginDbHandler(OriginBase):
             module_path, class_name = cdn_handler_path.rsplit('.', 1)
             module = __import__(module_path, fromlist=[class_name])
             cdn_handler_class = getattr(module, class_name)
-            self.cdn_handler = cdn_handler_class(conf)
+            self.cdn_handler = cdn_handler_class(app, conf)
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -370,21 +368,21 @@ class OriginDbHandler(OriginBase):
 
     def _get_cdn_uris(self, hsh):
         uri_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:],16) % 100}
-        return {'X-CDN-URI': self.cdn_uri_format % uri_vars,
-                'X-CDN-SSL-URI': self.ssl_cdn_uri_format % uri_vars}
-
+        return {'X-CDN-URI': (self.cdn_uri_format % uri_vars).rstrip('/'),
+            'X-CDN-SSL-URI': (self.ssl_cdn_uri_format % uri_vars).rstrip('/')}
 
     def origin_db_delete(self, env, req):
         '''
         Calls cdn_handler's DELETE.
         '''
-        self.logger.info('mooo: call delete %s' % self.cdn_handler)
         try:
            version, account, container, obj = split_path(req.path, 1, 4, True)
         except ValueError:
             return HTTPNotFound()
         hsh = self._hash_path(account, container)
         urls = self._get_cdn_uris(hsh).values()
+        if obj:
+            urls = ['%s/%s' % (u, obj) for u in urls]
         cdn_success = True
         if self.cdn_handler:
             try:
@@ -454,9 +452,7 @@ class OriginDbHandler(OriginBase):
 
         new_hash_data = HashData(account, container, ttl, cdn_enabled,
                                  logs_enabled)
-#        cdn_data = {'account': account, 'container': container, 'ttl': ttl,
-#                    'logs_enabled': logs_enabled, 'cdn_enabled': cdn_enabled}
-        cdn_obj_data = new_hash_data.get_json_str() #json.dumps(cdn_data)
+        cdn_obj_data = new_hash_data.get_json_str()
         cdn_obj_etag = md5(cdn_obj_data).hexdigest()
         # this is always a PUT because a POST needs to update the file
         cdn_obj_resp = make_pre_authed_request(env, 'PUT', cdn_obj_path,
@@ -552,7 +548,6 @@ class OriginServer(object):
 
     def _valid_setup(self):
         #TODO this doesn't work
-        return True
         valid_setup =  bool(self.origin_db_hosts and self.origin_cdn_hosts and
                             self.cdn_uri_format and self.ssl_cdn_uri_format)
         if not valid_setup:
@@ -586,13 +581,15 @@ class OriginServer(object):
             #and encodes it into unicode.  do I still have to do this?
             return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
         host = req.host.split(':')[0]
+        #TODO: is there something that I ned to do about the environ when
+        #I re route this request?
 
         handler = None
         if host in self.origin_db_hosts:
             handler = OriginDbHandler(self.app, self.conf)
         if host in self.origin_cdn_hosts:
             handler = CdnHandler(self.app, self.conf)
-        if env.get('PATH_INFO', '').startswith(self.origin_prefix):
+        if req.path.startswith(self.origin_prefix):
             handler = AdminHandler(self.app, self.conf)
         if handler:
             return handler.handle_request(env, req)(env, start_response)
