@@ -1,0 +1,8 @@
+# Example of changes needed to swift's proxy-server.conf
+[pipeline:main]
+pipeline = healthcheck cache tempauth sos proxy-server
+
+[filter:sos]
+use = egg:sos#sos
+sos_conf = /etc/swift/sos.conf
+
