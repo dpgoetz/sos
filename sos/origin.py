@@ -34,15 +34,19 @@ CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 
+
 class InvalidContentType(Exception):
     pass
 
-# TODO: why does this hang: curl -i http://127.0.0.1:8080/v1/.origin/.hash/55d28ec69fb98deca692979bbc55b1eb -X HEAD
+# TODO: why does this hang:
+#curl -i http://127.0.0.1:8080/v1/.origin/.hash/55d28ec69fb98deca692979bbc55b1eb -X HEAD
+
 
 class HashData(object):
     '''
     object to keep track on json data files
     '''
+
     def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
         self.account = account
         self.container = container
@@ -69,10 +73,12 @@ class HashData(object):
         except (KeyValue, ValueError), e:
             raise ValueError("Problem loading json: %s" % e)
 
+
 class OriginBase(object):
     '''
     Base class for Origin Server
     '''
+
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
@@ -86,6 +92,10 @@ class OriginBase(object):
     def _hash_path(self, account, container):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
                                   self.hash_suffix)).hexdigest()
+
+    def _get_hsh_obj_path(self, hsh):
+        hsh_num = int(hsh[-1], 16)
+        return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
     def _get_cdn_data(self, env, cdn_obj_path):
         '''
@@ -104,6 +114,7 @@ class OriginBase(object):
             except ValueError:
                 pass # TODO: ignore json errors in the data files, ok right?
         return None
+
 
 class AdminHandler(OriginBase):
 
@@ -143,11 +154,11 @@ class AdminHandler(OriginBase):
             resp = make_pre_authed_request(req.environ, 'PUT',
                 path, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int // 100 != 2:
-                raise Exception('Could not create the main origin account: %s %s' %
-                                (path, resp.status))
-            #TODO : is it worth it making 0-15 containers so they don't get
-            # too big?  for now i'm gona leave it with just one.
-            for cont_name in ['.hash_to_legacy_cdn', '.hash']:
+                raise Exception(
+                    'Could not create the main origin account: %s %s' %
+                    (path, resp.status))
+            hash_conts = ['.hash_%d' % i for i in xrange(16)]
+            for cont_name in hash_conts + ['.hash_to_legacy_cdn']:
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(req.environ, 'PUT',
                     path, agent='SwiftOrigin').get_response(self.app)
@@ -159,6 +170,7 @@ class AdminHandler(OriginBase):
 
 
 class CdnHandler(OriginBase):
+
     def __init__(self, app, conf):
         OriginBase.__init__(self, app, conf)
         self.logger = get_logger(conf, log_route='origin_cdn')
@@ -199,7 +211,7 @@ class CdnHandler(OriginBase):
         if not (hsh and object_name):
             headers = self._getCacheHeaders(req, CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
-        cdn_obj_path = '/v1/%s/.hash/%s' % (self.origin_account, hsh)
+        cdn_obj_path = self._get_hsh_obj_path(hsh)
         hash_data = self._get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
@@ -245,6 +257,7 @@ class OriginDbHandler(OriginBase):
     '''
     Origin server for public containers
     '''
+
     def __init__(self, app, conf):
         OriginBase.__init__(self, app, conf)
         self.logger = get_logger(conf, log_route='origin_db')
@@ -324,15 +337,17 @@ class OriginDbHandler(OriginBase):
         limit = get_param(req, 'limit')
         if limit:
             try:
-                limit= int(limit)
+                limit = int(limit)
             except ValueError:
                 return HTTPBadRequest('Invalid limit, must be an integer')
         listing_path = '/v1/%s/%s?format=json&marker=%s' % \
                        (self.origin_account, account, marker)
-        # not putting limit in request because may have to filter on cdn_enabled
+        # no limit in request because may have to filter on cdn_enabled
         resp = make_pre_authed_request(env, 'GET',
             listing_path, agent='SwiftOrigin').get_response(self.app)
-        resp_headers = {} # {'Transfer-Encoding': 'chunked'} #TODO is this right?
+        resp_headers = {}
+        # {'Transfer-Encoding': 'chunked'}
+        #TODO is this right? was chunked in old one
         if resp.status_int // 100 == 2:
             cont_listing = json.loads(resp.body)
             # TODO: is it ok to load the whole thing? do i have a choice?
@@ -367,7 +382,7 @@ class OriginDbHandler(OriginBase):
             return HTTPNotFound(request=req)
 
     def _get_cdn_uris(self, hsh):
-        uri_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:],16) % 100}
+        uri_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
         return {'X-CDN-URI': (self.cdn_uri_format % uri_vars).rstrip('/'),
             'X-CDN-SSL-URI': (self.ssl_cdn_uri_format % uri_vars).rstrip('/')}
 
@@ -376,7 +391,7 @@ class OriginDbHandler(OriginBase):
         Calls cdn_handler's DELETE.
         '''
         try:
-           version, account, container, obj = split_path(req.path, 1, 4, True)
+            version, account, container, obj = split_path(req.path, 1, 4, True)
         except ValueError:
             return HTTPNotFound()
         hsh = self._hash_path(account, container)
@@ -396,7 +411,6 @@ class OriginDbHandler(OriginBase):
         else:
             return HTTPBadRequest(request=req)
 
-
     def origin_db_head(self, env, req):
         '''
         Handles HEAD requests into Origin database
@@ -406,14 +420,14 @@ class OriginDbHandler(OriginBase):
         except ValueError:
             return HTTPNotFound()
         hsh = self._hash_path(account, container)
-        cdn_obj_path = '/v1/%s/.hash/%s' % (self.origin_account, hsh)
+        cdn_obj_path = self._get_hsh_obj_path(hsh)
         hash_data = self._get_cdn_data(env, cdn_obj_path)
         if hash_data:
             headers = self._get_cdn_uris(hsh)
             headers.update({'X-TTL': hash_data.ttl,
                 'X-Log-Retention': hash_data.logs_enabled.title(),
                 'X-CDN-Enabled': hash_data.cdn_enabled.title()})
-            return HTTPNoContent(headers = headers)
+            return HTTPNoContent(headers=headers)
         return HTTPNotFound(request=req)
 
     def origin_db_puts_posts(self, env, req):
@@ -421,12 +435,12 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         '''
         try:
-           version, account, container = split_path(req.path, 1, 3, True)
+            version, account, container = split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound()
 
         hsh = self._hash_path(account, container)
-        cdn_obj_path = '/v1/%s/.hash/%s' % (self.origin_account, hsh)
+        cdn_obj_path = self._get_hsh_obj_path(hsh)
         ttl, cdn_enabled, logs_enabled = '295200', 'true', 'false'
         hash_data = self._get_cdn_data(env, cdn_obj_path)
         if hash_data:
@@ -478,7 +492,7 @@ class OriginDbHandler(OriginBase):
                                           account, container)
 
         cdn_list_resp = make_pre_authed_request(env, req.method, cdn_list_path,
-            headers = {'Content-Type':
+            headers={'Content-Type':
                 self._gen_listing_content_type(cdn_enabled, ttl, logs_enabled),
                 'Content-Length': 0},
                  agent='SwiftOrigin').get_response(self.app)
@@ -532,7 +546,9 @@ class OriginDbHandler(OriginBase):
             return self.origin_db_delete(env, req)
         return HTTPNotFound()
 
+
 class OriginServer(object):
+
     def __init__(self, app, conf):
         self.app = app
         #self.conf = conf
@@ -548,11 +564,11 @@ class OriginServer(object):
 
     def _valid_setup(self):
         #TODO this doesn't work
-        valid_setup =  bool(self.origin_db_hosts and self.origin_cdn_hosts and
-                            self.cdn_uri_format and self.ssl_cdn_uri_format)
+        valid_setup = bool(self.origin_db_hosts and self.origin_cdn_hosts and
+                           self.cdn_uri_format and self.ssl_cdn_uri_format)
         if not valid_setup:
             try:
-                self.logger.critical( _('Invalid origin conf file!'))
+                self.logger.critical(_('Invalid origin conf file!'))
             except Exception:
                 pass
         return valid_setup

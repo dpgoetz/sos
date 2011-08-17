@@ -130,32 +130,21 @@ class TestOrigin(unittest.TestCase):
             pass
         else:
             self.assertTrue(False)
-#        self.test_origin.app = FakeApp(iter([('204 No Content', {}, ''),
-#            ('404 Not Found', {}, '')]))
-#        try:
-#            resp = Request.blank('/origin/.prep',
-#                environ={'REQUEST_METHOD': 'PUT'},
-#                headers={'X-Origin-Admin-User': '.origin_admin',
-#                         'X-Origin-Admin-Key': 'unittest'}
-#                ).get_response(self.test_origin)
-#        except Exception:
-#            pass
-#        else:
-#            self.assertTrue(False)
 
     def test_admin_setup(self):
-        self.test_origin.app = FakeApp(iter([
-            ('204 No Content', {}, ''), # PUT of .origin account
-            ('204 No Content', {}, ''), # PUT of .hash_to_legacy_cdn cont
-            ('204 No Content', {}, '')])) # PUT of .hash cont
+        # PUTs for account, 16 .hash's, and .hash_to_legacy
+        self.test_origin.app = FakeApp(iter(
+           [('204 No Content', {}, '') for i in xrange(18)]))
         resp = Request.blank('/origin/.prep',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Origin-Admin-User': '.origin_admin',
                      'X-Origin-Admin-Key': 'unittest'}
             ).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(self.test_origin.app.calls, 3)
+        self.assertEquals(self.test_origin.app.calls, 18)
 
+    def test_origin_db_put(self):
+        pass
 
 if __name__ == '__main__':
     unittest.main()
