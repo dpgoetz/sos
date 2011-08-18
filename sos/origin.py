@@ -264,13 +264,6 @@ class OriginDbHandler(OriginBase):
         self.cdn_hostname = conf.get('cdn_uri', 'cf1.rackcdn.com')
         self.cdn_uri_format = conf.get('outgoing_cdn_uri_format')
         self.ssl_cdn_uri_format = conf.get('outgoing_ssl_cdn_uri_format')
-        self.cdn_handler = None
-        cdn_handler_path = conf.get('cdn_handler_class')
-        if cdn_handler_path:
-            module_path, class_name = cdn_handler_path.rsplit('.', 1)
-            module = __import__(module_path, fromlist=[class_name])
-            cdn_handler_class = getattr(module, class_name)
-            self.cdn_handler = cdn_handler_class(app, conf)
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -386,31 +379,6 @@ class OriginDbHandler(OriginBase):
         return {'X-CDN-URI': (self.cdn_uri_format % uri_vars).rstrip('/'),
             'X-CDN-SSL-URI': (self.ssl_cdn_uri_format % uri_vars).rstrip('/')}
 
-    def origin_db_delete(self, env, req):
-        '''
-        Calls cdn_handler's DELETE.
-        '''
-        try:
-            version, account, container, obj = split_path(req.path, 1, 4, True)
-        except ValueError:
-            return HTTPNotFound()
-        hsh = self._hash_path(account, container)
-        urls = self._get_cdn_uris(hsh).values()
-        if obj:
-            urls = ['%s/%s' % (u, obj) for u in urls]
-        cdn_success = True
-        if self.cdn_handler:
-            try:
-                self.logger.info('call delete" %s' % urls)
-                cdn_success = self.cdn_handler.DELETE(env, urls, req.headers)
-            except Exception, e:
-                cdn_success = False
-                self.logger.exception('Cdn handler DELETE exception: %s' % e)
-        if cdn_success:
-            return HTTPNoContent(request=req)
-        else:
-            return HTTPBadRequest(request=req)
-
     def origin_db_head(self, env, req):
         '''
         Handles HEAD requests into Origin database
@@ -503,28 +471,11 @@ class OriginDbHandler(OriginBase):
         cdn_success = True
         cdn_url_headers = self._get_cdn_uris(hsh)
         if req.method == 'POST':
-            if self.cdn_handler:
-                try:
-                    cdn_success = self.cdn_handler.POST(
-                        env, cdn_url_headers.values(), req.headers)
-                except Exception, e:
-                    cdn_success = False
-                    self.logger.exception('Cdn handler POST exception: %s' % e)
-            if cdn_success:
-                return HTTPAccepted(request=req,
-                                    headers=cdn_url_headers)
+            return HTTPAccepted(request=req,
+                                headers=cdn_url_headers)
         else:
-            if self.cdn_handler:
-                try:
-                    cdn_success = self.cdn_handler.PUT(
-                        env, cdn_url_headers.values(), req.headers)
-                except Exception, e:
-                    cdn_success = False
-                    self.logger.exception('Cdn handler PUT exception: %s' % e)
-            if cdn_success:
-                return HTTPCreated(request=req,
-                                   headers=cdn_url_headers)
-        return HTTPBadRequest(request=req)
+            return HTTPCreated(request=req,
+                               headers=cdn_url_headers)
 
     def handle_request(self, env, req):
         '''
@@ -543,7 +494,7 @@ class OriginDbHandler(OriginBase):
         if req.method == 'HEAD':
             return self.origin_db_head(env, req)
         if req.method == 'DELETE':
-            return self.origin_db_delete(env, req)
+            return HTTPMethodNotAllowed()
         return HTTPNotFound()
 
 
