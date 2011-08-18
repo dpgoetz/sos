@@ -25,7 +25,9 @@ from webob import Request, Response
 
 from sos import origin
 
+
 class FakeConf(object):
+
     def __init__(self, data=None):
         if data:
             self.data = data
@@ -46,7 +48,7 @@ outgoing_ssl_cdn_uri_format = https://ssl.cdn.com/h%(hash)s'''.split('\n')
 
 class FakeApp(object):
 
-    def __init__(self, status_headers_body_iter=None, acl=None, sync_key=None):
+    def __init__(self, status_headers_body_iter=None):
         self.calls = 0
         self.status_headers_body_iter = status_headers_body_iter
         if not self.status_headers_body_iter:
@@ -94,22 +96,22 @@ class TestOrigin(unittest.TestCase):
     def setUp(self):
         fake_conf = FakeConf()
         self.test_origin = origin.filter_factory(
-            {'sos_conf':fake_conf})(FakeApp())
+            {'sos_conf': fake_conf})(FakeApp())
 
     def test_valid_setup(self):
         fake_conf = FakeConf(data=['[sos]'])
         test_origin = origin.filter_factory(
-            {'sos_conf':fake_conf})(FakeApp())
+            {'sos_conf': fake_conf})(FakeApp())
         self.assertFalse(test_origin._valid_setup())
 
         fake_conf = FakeConf()
         test_origin = origin.filter_factory(
-            {'sos_conf':fake_conf})(FakeApp())
+            {'sos_conf': fake_conf})(FakeApp())
         self.assertTrue(test_origin._valid_setup())
 
     def test_admin_setup_failures(self):
-        resp = Request.blank('/origin/.prep', environ={'REQUEST_METHOD': 'PUT'}
-            ).get_response(self.test_origin)
+        resp = Request.blank('/origin/.prep',
+            environ={'REQUEST_METHOD': 'PUT'}).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 403)
 
         resp = Request.blank('/origin/.prep_not_there',
@@ -143,9 +145,47 @@ class TestOrigin(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(self.test_origin.app.calls, 18)
 
+    def test_origin_db_post_fail(self):
+        self.test_origin.app = FakeApp(iter(
+            [('204 No Content', {}, '')]))
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'},
+            ).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+
+        self.test_origin.app = FakeApp(iter(
+            [('404 Not Found', {}, '')]))
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'},
+            ).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+
     def test_origin_db_put(self):
-        pass
+        data = {'account': 'acc', 'container': 'cont',
+                'ttl': 29500, 'logs_enabled': 'false',
+                'cdn_enabled': 'true'}
+        self.test_origin.app = FakeApp(iter([
+            ('404 Not Found', {}, ''), # call to get current values
+            ('204 Not Found', {}, ''), # call to get current values
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'PUT'},
+            )
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_origin_db_put_update(self):
+        data = {'account': 'acc', 'container': 'cont',
+                'ttl': 29500, 'logs_enabled': 'false',
+                'cdn_enabled': 'true'}
+        self.test_origin.app = FakeApp(iter(
+            [('200 Ok', {}, json.dumps(data)),
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'PUT'},
+            )
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 204)
 
 if __name__ == '__main__':
     unittest.main()
-

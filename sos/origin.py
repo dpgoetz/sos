@@ -70,7 +70,7 @@ class HashData(object):
             data = json.loads(json_str)
             return HashData(data['account'], data['container'], data['ttl'],
                             data['cdn_enabled'], data['logs_enabled'])
-        except (KeyValue, ValueError), e:
+        except (KeyError, ValueError), e:
             raise ValueError("Problem loading json: %s" % e)
 
 
