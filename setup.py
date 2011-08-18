@@ -15,45 +15,11 @@
 # limitations under the License.
 
 from setuptools import setup, find_packages
-from setuptools.command.sdist import sdist
-import os
-import subprocess
-try:
-    from babel.messages import frontend
-except ImportError:
-    frontend = None
 
 from sos import __version__ as version
 
 
-class local_sdist(sdist):
-    """Customized sdist hook - builds the ChangeLog file from VC first"""
-
-    def run(self):
-        if os.path.isdir('.bzr'):
-            # We're in a bzr branch
-
-            log_cmd = subprocess.Popen(["bzr", "log", "--gnu"],
-                                       stdout=subprocess.PIPE)
-            changelog = log_cmd.communicate()[0]
-            with open("ChangeLog", "w") as changelog_file:
-                changelog_file.write(changelog)
-        sdist.run(self)
-
-
 name = 'sos'
-
-
-cmdclass = {'sdist': local_sdist}
-
-
-if frontend:
-    cmdclass.update({
-        'compile_catalog': frontend.compile_catalog,
-        'extract_messages': frontend.extract_messages,
-        'init_catalog': frontend.init_catalog,
-        'update_catalog': frontend.update_catalog,
-    })
 
 
 setup(
@@ -62,11 +28,10 @@ setup(
     description='Swift Origin Server',
     license='Apache License (2.0)',
     author='OpenStack, LLC.',
-    author_email='openstack-admins@lists.launchpad.net',
+    author_email='david.goetz@rackspace.com',
     url='https://github.com/dpgoetz/sos',
     packages=find_packages(exclude=['test_sos', 'bin']),
     test_suite='nose.collector',
-    cmdclass=cmdclass,
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: Apache Software License',
