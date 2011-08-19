@@ -28,8 +28,6 @@ try:
 except ImportError:
     import json
 
-MIN_TTL = 900
-MAX_TTL = 3155692600
 CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
@@ -264,6 +262,8 @@ class OriginDbHandler(OriginBase):
         self.cdn_hostname = conf.get('cdn_uri', 'cf1.rackcdn.com')
         self.cdn_uri_format = conf.get('outgoing_cdn_uri_format')
         self.ssl_cdn_uri_format = conf.get('outgoing_ssl_cdn_uri_format')
+        self.min_ttl = int(conf.get('min_ttl', '900'))
+        self.max_ttl = int(conf.get('max_ttl', '3155692600'))
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -421,12 +421,12 @@ class OriginDbHandler(OriginBase):
         try:
             ttl = int(req.headers.get('X-TTL', ttl))
         except ValueError:
-            return HttpBadRequest(_('Invalid X-TTL, must be integer'))
-        if ttl < MIN_TTL or ttl > MAX_TTL:
+            return HTTPBadRequest(_('Invalid X-TTL, must be integer'))
+        if ttl < self.min_ttl or ttl > self.max_ttl:
             # TODO: this isn't exactly whats currently there. It only errors on
             # invalid TTLs if the enabled is true or being set to true
-            return HttpBadRequest(_('Invalid X-TTL, must be between %(min)s '
-                'and %(max)s'), {'min': MIN_TTL, 'max': MAX_TTL})
+            return HTTPBadRequest(_('Invalid X-TTL, must be between %(min)s '
+                'and %(max)s') % {'min': self.min_ttl, 'max': self.max_ttl})
         logs_enabled = req.headers.get('X-Log-Retention',
             logs_enabled).lower() in TRUE_VALUES and 'true' or 'false'
         cdn_enabled = req.headers.get('X-CDN-Enabled',
