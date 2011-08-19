@@ -421,12 +421,12 @@ class OriginDbHandler(OriginBase):
         try:
             ttl = int(req.headers.get('X-TTL', ttl))
         except ValueError:
-            return HttpBadRequest(_('Invalid X-TTL, must be integer'))
+            return HTTPBadRequest(_('Invalid X-TTL, must be integer'))
         if ttl < self.min_ttl or ttl > self.max_ttl:
             # TODO: this isn't exactly whats currently there. It only errors on
             # invalid TTLs if the enabled is true or being set to true
-            return HttpBadRequest(_('Invalid X-TTL, must be between %(min)s '
-                'and %(max)s'), {'min': self.min_ttl, 'max': self.max_ttl})
+            return HTTPBadRequest(_('Invalid X-TTL, must be between %(min)s '
+                'and %(max)s') % {'min': self.min_ttl, 'max': self.max_ttl})
         logs_enabled = req.headers.get('X-Log-Retention',
             logs_enabled).lower() in TRUE_VALUES and 'true' or 'false'
         cdn_enabled = req.headers.get('X-CDN-Enabled',
