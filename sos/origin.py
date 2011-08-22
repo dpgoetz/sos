@@ -99,9 +99,8 @@ class OriginBase(object):
 
     def _get_cdn_data(self, env, cdn_obj_path):
         '''
-        Returns tuple of response_status, ttl, cdn_enabled, logs_enabled
-        by doing a GET to the obj in the .hash container.  Raises variety
-        of exceptions on error and invalid data.
+        Returns HashData object by doing a GET to the obj in the .hash
+        container.
         '''
         # get defaults
         #TODO: I think I should cache this in memcache later
@@ -158,7 +157,7 @@ class AdminHandler(OriginBase):
                     'Could not create the main origin account: %s %s' %
                     (path, resp.status))
             hash_conts = ['.hash_%d' % i for i in xrange(16)]
-            for cont_name in hash_conts + ['.hash_to_legacy_cdn']:
+            for cont_name in hash_conts:
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(req.environ, 'PUT',
                     path, agent='SwiftOrigin').get_response(self.app)
@@ -542,12 +541,7 @@ class OriginServer(object):
         #TODO: need to look at how the logs_enabled thing works :(
         if not self._valid_setup():
             return self.app(env, start_response)
-        req = Request(env)
-        if not check_utf8(req.path_info):
-            #TODO: the current origin server accepts ISO-8859-1 object names
-            #and encodes it into unicode.  do I still have to do this?
-            return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
-        host = req.host.split(':')[0]
+        host = env['HTTP_HOST'].split(':')[0]
         #TODO: is there something that I ned to do about the environ when
         #I re route this request?
 
@@ -556,9 +550,14 @@ class OriginServer(object):
             handler = OriginDbHandler(self.app, self.conf)
         if host in self.origin_cdn_hosts:
             handler = CdnHandler(self.app, self.conf)
-        if req.path.startswith(self.origin_prefix):
+        if env['PATH_INFO'].startswith(self.origin_prefix):
             handler = AdminHandler(self.app, self.conf)
         if handler:
+            req = Request(env)
+            if not check_utf8(req.path_info):
+                #TODO: the current origin server accepts ISO-8859-1 object
+                # names and encodes it into unicode.  do I have to do this?
+                return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
             return handler.handle_request(env, req)(env, start_response)
         return self.app(env, start_response)
 
