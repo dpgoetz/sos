@@ -1,0 +1,4 @@
+#!/bin/bash
+
+nosetests test_sos/unit --exe --with-coverage --cover-package sos --cover-erase
+rm -f .coverage

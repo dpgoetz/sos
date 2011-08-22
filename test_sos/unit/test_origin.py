@@ -160,6 +160,28 @@ class TestOrigin(unittest.TestCase):
             ).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 404)
 
+    def test_origin_db_post_ttl(self):
+        data = {'account': 'acc', 'container': 'cont',
+                'ttl': 29500, 'logs_enabled': 'false',
+                'cdn_enabled': 'true'}
+        self.test_origin.app = FakeApp(iter(
+            [('200 Ok', {}, json.dumps(data)),
+            ]))
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}, headers={'X-TTL': 'foo'},
+            ).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 400)
+        self.assertTrue('Invalid X-TTL, must be integer' in resp.body)
+
+        self.test_origin.app = FakeApp(iter(
+            [('200 Ok', {}, json.dumps(data)),
+            ]))
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}, headers={'X-TTL': '1'},
+            ).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 400)
+        self.assertTrue('Invalid X-TTL, must be between' in resp.body)
+
     def test_origin_db_put(self):
         data = {'account': 'acc', 'container': 'cont',
                 'ttl': 29500, 'logs_enabled': 'false',
