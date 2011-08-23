@@ -206,7 +206,7 @@ class CdnHandler(OriginBase):
                 object_name = match_dict.get('object_name')
 
         if not (hsh and object_name):
-            headers = self._getCacheHeaders(req, CACHE_BAD_URL)
+            headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
         cdn_obj_path = self._get_hsh_obj_path(hsh)
         hash_data = self._get_cdn_data(env, cdn_obj_path)
@@ -237,7 +237,8 @@ class CdnHandler(OriginBase):
                 cdn_resp.etag = resp.etag
                 cdn_resp.content_length = resp.content_length
                 for header in ('Content-Range', 'Content-Encoding',
-                               'Content-Disposition', 'Accept-Ranges'):
+                               'Content-Disposition', 'Accept-Ranges',
+                               'Content-Type'):
                     header_val = resp.headers.get(header)
                     if header_val:
                         cdn_resp.headers[header] = header_val
