@@ -177,7 +177,8 @@ class CdnHandler(OriginBase):
         self.cdn_regexes = []
         for key in self.conf.keys():
             if key.startswith('cdn_uri_regex_'):
-                self.cdn_regexes.append(self.conf[key])
+                regex = re.compile(self.conf[key])
+                self.cdn_regexes.append(regex)
 
     def _getCacheHeaders(self, ttl):
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
@@ -199,11 +200,12 @@ class CdnHandler(OriginBase):
         hsh = None
         object_name = None
         for regex in self.cdn_regexes:
-            match_obj = re.match(regex, req.url)
+            match_obj = regex.match(req.url)
             if match_obj:
                 match_dict = match_obj.groupdict()
                 hsh = match_dict.get('cdn_hash')
                 object_name = match_dict.get('object_name')
+                break
 
         if not (hsh and object_name):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
