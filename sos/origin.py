@@ -196,16 +196,17 @@ class CdnHandler(OriginBase):
         if req.method not in ('GET', 'HEAD'):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPMethodNotAllowed(request=req, headers=headers)
-
-        hsh = None
-        object_name = None
-        for regex in self.cdn_regexes:
-            match_obj = regex.match(req.url)
-            if match_obj:
-                match_dict = match_obj.groupdict()
-                hsh = match_dict.get('cdn_hash')
-                object_name = match_dict.get('object_name')
-                break
+        # allow earlier middleware to override hash and obj_name
+        hsh = env.get('swift.cdn_hash')
+        object_name = env.get('swift.cdn_object_name')
+        if not (hsh and object_name):
+            for regex in self.cdn_regexes:
+                match_obj = regex.match(req.url)
+                if match_obj:
+                    match_dict = match_obj.groupdict()
+                    hsh = match_dict.get('cdn_hash')
+                    object_name = match_dict.get('object_name')
+                    break
 
         if not (hsh and object_name):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
