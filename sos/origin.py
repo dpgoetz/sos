@@ -245,7 +245,7 @@ class CdnHandler(OriginBase):
                     if header_val:
                         cdn_resp.headers[header] = header_val
 
-                headers.update(self._getCacheHeaders(hash_data.ttl))
+                cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
 
                 return cdn_resp
             self.logger.exception('Unexpected response from Swift: %s, %s' %
@@ -547,11 +547,13 @@ class OriginServer(object):
         host = env['HTTP_HOST'].split(':')[0]
         #TODO: is there something that I ned to do about the environ when
         #I re route this request?
+        hostNoHash = host.split('.', 1)[1]
 
         handler = None
         if host in self.origin_db_hosts:
             handler = OriginDbHandler(self.app, self.conf)
-        if host in self.origin_cdn_hosts:
+        # Check for full host, or host minus hash
+        if host in self.origin_cdn_hosts or hostNoHash in self.origin_cdn_hosts:
             handler = CdnHandler(self.app, self.conf)
         if env['PATH_INFO'].startswith(self.origin_prefix):
             handler = AdminHandler(self.app, self.conf)
