@@ -456,7 +456,8 @@ class OriginDbHandler(OriginBase):
             resp = make_pre_authed_request(req.environ, 'PUT',
                 listing_cont_path, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int // 100 != 2:
-                raise Exception('Could not create account within '
+                #TODO: who catches this?
+                raise Exception('Could not create listing container within '
                     'origin db: %s %s' % (listing_cont_path, resp.status))
 
         cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
