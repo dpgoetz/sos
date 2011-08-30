@@ -246,7 +246,7 @@ class CdnHandler(OriginBase):
                     if header_val:
                         cdn_resp.headers[header] = header_val
 
-                headers.update(self._getCacheHeaders(hash_data.ttl))
+                cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
 
                 return cdn_resp
             self.logger.exception('Unexpected response from Swift: %s, %s' %
