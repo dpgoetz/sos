@@ -22,8 +22,10 @@ import unittest
 #from time import time
 
 from webob import Request, Response
+from webob.exc import HTTPUnauthorized
 
 from sos import origin
+from swift.common import utils
 
 
 class FakeConf(object):
@@ -57,10 +59,10 @@ class FakeApp(object):
     def __call__(self, env, start_response):
         self.calls += 1
         self.request = Request.blank('', environ=env)
-#        if 'swift.authorize' in env:
-#            resp = env['swift.authorize'](self.request)
-#            if resp:
-#                return resp(env, start_response)
+        if 'swift.authorize' in env:
+            resp = env['swift.authorize'](self.request)
+            if resp:
+                return resp(env, start_response)
         iter_tup = self.status_headers_body_iter.next()
         if len(iter_tup) == 3:
             status, headers, body = iter_tup
@@ -69,7 +71,6 @@ class FakeApp(object):
             test_res = tester(self.request.headers, self.request.body)
             if test_res:
                 raise Exception(test_res)
-
 
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
@@ -154,16 +155,39 @@ class TestOrigin(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(self.test_origin.app.calls, 17)
 
-    def test_origin_db_post_fail(self):
         self.test_origin.app = FakeApp(iter(
-            [('204 No Content', {}, '')]))
-        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
-            environ={'REQUEST_METHOD': 'POST'},
-            ).get_response(self.test_origin)
-        self.assertEquals(resp.status_int, 404)
+           [('404 Not Found', {}, '')]))
+        req = Request.blank('/origin/.prep',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Origin-Admin-User': '.origin_admin',
+                     'X-Origin-Admin-Key': 'unittest'}
+            )
+        self.assertRaises(Exception, req.get_response, self.test_origin)
 
         self.test_origin.app = FakeApp(iter(
-            [('404 Not Found', {}, '')]))
+           [('204 No Content', {}, ''),('404 Not Found', {}, '')]))
+        req = Request.blank('/origin/.prep',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Origin-Admin-User': '.origin_admin',
+                     'X-Origin-Admin-Key': 'unittest'}
+            )
+        self.assertRaises(Exception, req.get_response, self.test_origin)
+
+    def test_origin_db_valid_setup(self):
+        fake_conf = FakeConf(data=['[sos]'])
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})(FakeApp())
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_origin_db_post_fail(self):
+        self.test_origin.app = FakeApp(iter([('204 No Content', {}, '')]))
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+
+        self.test_origin.app = FakeApp(iter([('404 Not Found', {}, '')]))
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'},
             ).get_response(self.test_origin)
@@ -171,11 +195,9 @@ class TestOrigin(unittest.TestCase):
 
     def test_origin_db_post_ttl(self):
         data = {'account': 'acc', 'container': 'cont',
-                'ttl': 29500, 'logs_enabled': 'false',
-                'cdn_enabled': 'true'}
+                'ttl': 29500, 'logs_enabled': 'false', 'cdn_enabled': 'true'}
         self.test_origin.app = FakeApp(iter(
-            [('200 Ok', {}, json.dumps(data)),
-            ]))
+            [('200 Ok', {}, json.dumps(data))]))
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}, headers={'X-TTL': 'foo'},
             ).get_response(self.test_origin)
@@ -183,8 +205,7 @@ class TestOrigin(unittest.TestCase):
         self.assertTrue('Invalid X-TTL, must be integer' in resp.body)
 
         self.test_origin.app = FakeApp(iter(
-            [('200 Ok', {}, json.dumps(data)),
-            ]))
+            [('200 Ok', {}, json.dumps(data))]))
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}, headers={'X-TTL': '1'},
             ).get_response(self.test_origin)
@@ -193,8 +214,7 @@ class TestOrigin(unittest.TestCase):
 
     def test_origin_db_put(self):
         data = {'account': 'acc', 'container': 'cont',
-                'ttl': 29500, 'logs_enabled': 'false',
-                'cdn_enabled': 'true'}
+                'ttl': 29500, 'logs_enabled': 'false', 'cdn_enabled': 'true'}
         self.test_origin.app = FakeApp(iter([
             ('404 Not Found', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, ''), # put to .hash file
@@ -213,8 +233,7 @@ class TestOrigin(unittest.TestCase):
                 'ttl': 29500, 'logs_enabled': 'false',
                 'cdn_enabled': 'true'}
         self.test_origin.app = FakeApp(iter([
-            ('404 Not Found', {}, ''), # call to _get_cdn_data
-            ]))
+            ('404 Not Found', {}, '')])) # call to _get_cdn_data
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'},
             )
@@ -225,9 +244,7 @@ class TestOrigin(unittest.TestCase):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
                 'ttl': 1234, 'logs_enabled': 'true',
                 'cdn_enabled': 'false'})
-        data = {'account': 'acc', 'container': 'cont',
-                'cdn_enabled': 'true'}
-
+        data = {'account': 'acc', 'container': 'cont', 'cdn_enabled': 'true'}
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('204 No Content', {}, '',
@@ -242,48 +259,192 @@ class TestOrigin(unittest.TestCase):
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 202)
 
+    def test_origin_db_post_fail(self):
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, ''), # call to _get_cdn_data
+            ('404 Not Found', {}, ''), # put to .hash
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'PUT'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 500)
+
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, ''), # call to _get_cdn_data
+            ('204 No Content', {}, ''), # put to .hash
+            ('404 Not Found', {}, ''), # HEAD check to list container
+            ('404 Not Found', {}, ''), # PUT to list container
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'PUT'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 500)
+
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, ''), # call to _get_cdn_data
+            ('204 No Content', {}, ''), # put to .hash
+            ('204 No Content', {}, ''), # HEAD check to list container
+            ('404 Not Found', {}, ''), # PUT to list container
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'PUT'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 500)
+
     #TODO: some unicode tests
+    def test_origin_db_get(self):
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/true-1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        data = resp.body.split('\n')
+        self.assertEquals(data[0], 'test1')
+        self.assertEquals(data[1], 'test2')
+        self.assertEquals(resp.status_int, 200)
+
+    def test_origin_db_get_limit(self):
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/true-1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc?limit=1',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        data = resp.body.split('\n')
+        self.assertEquals(data[0], 'test1')
+        self.assertEquals(len(data), 1)
+        self.assertEquals(resp.status_int, 200)
 
     def test_origin_db_get_json(self):
         listing_data = json.dumps([
             {'name': 'test1', 'content_type': 'x-cdn/true-1234-false'},
             {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
-        self.test_origin.app = FakeApp(iter([
-            ('200 Ok', {}, listing_data),
-            ]))
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
         req = Request.blank(
             'http://origin_db.com:8080/v1/acc/cont?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
         data = json.loads(resp.body)
-        self.assertEquals(data[0]['ttl'], '1234')
-        self.assertEquals(data[1]['ttl'], '2234')
+        self.assertEquals(data[0]['ttl'], 1234)
+        self.assertEquals(data[1]['ttl'], 2234)
         self.assertEquals(resp.status_int, 200)
+
+    def test_origin_db_get_json_only_enabled(self):
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/false-1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?format=json&enabled=true',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        data = json.loads(resp.body)
+        self.assertEquals(data[0]['ttl'], 2234)
+        self.assertEquals(len(data), 1)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_origin_db_delete(self):
+        self.test_origin.app = FakeApp(iter([]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 405)
 
     def test_origin_db_get_fail(self):
         # bad listing lines are ignored
         listing_data = json.dumps([
             {'name': 'test1', 'content_type': 'x-cdn/true1234-false'},
+            {'name': 'test1', 'content_type': 'x-cd/true1234-false'},
             {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
-        self.test_origin.app = FakeApp(iter([
-            ('200 Ok', {}, listing_data),
-            ]))
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
         req = Request.blank(
             'http://origin_db.com:8080/v1/acc/cont?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
         data = json.loads(resp.body)
-        self.assertEquals(data[0]['ttl'], '2234')
+        self.assertEquals(data[0]['ttl'], 2234)
         self.assertEquals(len(data), 1)
         self.assertEquals(resp.status_int, 200)
+        #bad path
+        req = Request.blank(
+            'http://origin_db.com:8080/v1?format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 400)
+        #bad limit
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc?limit=hey',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 400)
+        # acc not found get
+        self.test_origin.app = FakeApp(iter([('404 Not Found', {},'')]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+        # acc not found head
+        self.test_origin.app = FakeApp(iter([('404 Not Found', {},'')]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?format=json',
+            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+        #unauthed
+        self.test_origin.app = FakeApp(iter([('404 Not Found', {},'')]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?format=json',
+            environ={'REQUEST_METHOD': 'HEAD',
+            'swift.authorize': lambda req: HTTPUnauthorized()})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 401)
+        #weird method
+        self.test_origin.app = FakeApp(iter([]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'nowhere'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_split_paths(self):
+        def fake_split(*args, **kwargs):
+            raise ValueError('Testing')
+        was_split = utils.split_path
+        try:
+            utils.split_path = fake_split
+            from swift.common.utils import split_path
+            utils.split_path = fake_split
+            self.test_origin.app = FakeApp(iter([('404 Not Found', {}, '')]))
+            resp = Request.blank('/origin/.prep',
+                environ={'REQUEST_METHOD': 'POST'},
+                headers={'X-Origin-Admin-User': '.origin_admin',
+                         'X-Origin-Admin-Key': 'unittest'}
+                ).get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 404)
+            resp = Request.blank('http://origin_db.com:8080/v1/acc',
+                environ={'REQUEST_METHOD': 'HEAD'}).get_response(
+                self.test_origin)
+            self.assertEquals(resp.status_int, 404)
+            resp = Request.blank('http://origin_db.com:8080/v1/acc',
+                environ={'REQUEST_METHOD': 'PUT'}).get_response(
+                self.test_origin)
+            self.assertEquals(resp.status_int, 404)
+        finally:
+            utils.split_path = was_split
+
 
     def test_origin_db_get_xml(self):
         listing_data = json.dumps([
             {'name': 'test1', 'content_type': 'x-cdn/true-1234-false'},
             {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
-        self.test_origin.app = FakeApp(iter([
-            ('200 Ok', {}, listing_data),
-            ]))
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data)]))
         req = Request.blank(
             'http://origin_db.com:8080/v1/acc/cont?format=xml',
             environ={'REQUEST_METHOD': 'GET'})
@@ -293,17 +454,39 @@ class TestOrigin(unittest.TestCase):
 
     def test_origin_db_head(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true',
-                'cdn_enabled': 'false'})
-
+                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
         self.test_origin.app = FakeApp(iter([
-            ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ]))
+            ('204 No Content', {}, prev_data)])) # call to _get_cdn_data
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(resp.headers['x-ttl'], 1234)
+
+    def test_cdn_bad_req(self):
+        for meth in ['PUT','POST','DELETE','JUNK']:
+            self.test_origin.app = FakeApp(iter([]))
+            resp = Request.blank('http://origin_cdn.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': meth}).get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 405)
+
+        resp = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+            environ={'REQUEST_METHOD': 'HEAD',
+                     'swift.cdn_hash': 'abcd'}).get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_cdn_get_304(self):
+        prev_data = json.dumps({'account': 'acc', 'container': 'cont',
+                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, prev_data), # call to _get_cdn_data
+            ('304 No Content', {}, '')])) #call to get obj
+        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+            environ={'REQUEST_METHOD': 'HEAD',
+                     'swift.cdn_hash': 'abcd',
+                     'swift.cdn_object_name': 'obj1.jpg'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 304)
 
 if __name__ == '__main__':
     unittest.main()

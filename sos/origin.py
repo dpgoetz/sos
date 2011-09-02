@@ -16,11 +16,12 @@ from time import time, gmtime, strftime
 from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized, HTTPNoContent, HTTPAccepted, HTTPCreated, \
-    HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable
+    HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
+    HTTPInternalServerError
 from hashlib import md5
 import re
-from swift.common.utils import get_logger, split_path, get_param, \
-    TRUE_VALUES, readconf
+from swift.common import utils
+from swift.common.utils import get_logger, get_param, TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
 try:
@@ -36,8 +37,8 @@ SWIFT_FETCH_SIZE = 100 * 1024
 class InvalidContentType(Exception):
     pass
 
-# TODO: why does this hang:
-#curl -i http://127.0.0.1:8080/v1/.origin/.hash/55d28ec69fb98deca692979bbc55b1eb -X HEAD
+class OriginDbFailure(Exception):
+    pass
 
 
 class HashData(object):
@@ -83,9 +84,9 @@ class OriginBase(object):
         self.hash_suffix = conf.get('hash_path_suffix', 'abcde')
         self.origin_account = conf.get('origin_account', '.origin')
 
-    def _valid_setup(self):
-        #TODO: this later
-        return bool(self.cdn_uri_format and self.ssl_cdn_uri_format)
+#    def _valid_setup(self):
+#        #TODO: this later
+#        return bool(self.cdn_uri_format and self.ssl_cdn_uri_format)
 
     def _hash_path(self, account, container):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
@@ -143,7 +144,7 @@ class AdminHandler(OriginBase):
         if not self.is_origin_admin(req):
             return HTTPForbidden(request=req)
         try:
-            version, account, container = split_path(req.path, 1, 3, True)
+            vsn, account, container = utils.split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound(request=req)
         if account == '.prep':
@@ -287,13 +288,16 @@ class OriginDbHandler(OriginBase):
         if cdn_data.startswith('x-cdn/'):
             try:
                 cdn_enabled, ttl, log_ret = cdn_data[len('x-cdn/'):].split('-')
+                cdn_enabled = cdn_enabled.lower() in TRUE_VALUES
+                log_ret= log_ret.lower() in TRUE_VALUES
+                ttl = int(ttl)
             except ValueError:
                 raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                     (account, container, cdn_data))
             cdn_uri_dict = self._get_cdn_uris(hsh)
         else:
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
-                                     (account, container, data))
+                                     (account, container, cdn_data))
         if only_cdn_enabled and not cdn_enabled:
             return None
         output_dict = {'name': container, 'cdn_enabled': cdn_enabled,
@@ -329,7 +333,7 @@ class OriginDbHandler(OriginBase):
         marker = get_param(req, 'marker', default='')
         list_format = get_param(req, 'format')
         enabled_only = get_param(req, 'enabled',
-                                 default='false') in TRUE_VALUES
+                                 default='false').lower() in TRUE_VALUES
         limit = get_param(req, 'limit')
         if limit:
             try:
@@ -387,7 +391,7 @@ class OriginDbHandler(OriginBase):
         Handles HEAD requests into Origin database
         '''
         try:
-            version, account, container = split_path(req.path, 1, 3, True)
+            vsn, account, container = utils.split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound()
         hsh = self._hash_path(account, container)
@@ -406,7 +410,7 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         '''
         try:
-            version, account, container = split_path(req.path, 1, 3, True)
+            vsn, account, container = utils.split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound()
 
@@ -445,8 +449,8 @@ class OriginDbHandler(OriginBase):
             agent='SwiftOrigin').get_response(self.app)
 
         if cdn_obj_resp.status_int // 100 != 2:
-            #TODO: this is not right, need to build a better response
-            return cdn_obj_resp
+            raise OriginDbFailure('Could not PUT .hash obj in origin '
+                'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
 
         listing_cont_path = '/v1/%s/%s' % (self.origin_account, account)
         resp = make_pre_authed_request(env, 'HEAD',
@@ -456,9 +460,8 @@ class OriginDbHandler(OriginBase):
             resp = make_pre_authed_request(req.environ, 'PUT',
                 listing_cont_path, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int // 100 != 2:
-                #TODO: who catches this?
-                raise Exception('Could not create listing container within '
-                    'origin db: %s %s' % (listing_cont_path, resp.status))
+                raise OriginDbFailure('Could not create listing container '
+                    'in origin db: %s %s' % (listing_cont_path, resp.status))
 
         cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
                                           account, container)
@@ -470,8 +473,8 @@ class OriginDbHandler(OriginBase):
                  agent='SwiftOrigin').get_response(self.app)
 
         if cdn_list_resp.status_int // 100 != 2:
-            #TODO: this is not right need to build a better response
-            return cdn_list_resp
+            raise OriginDbFailure('Could not PUT/POST to cdn listing in '
+                'origin db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
         cdn_success = True
         cdn_url_headers = self._get_cdn_uris(hsh)
         if req.method == 'POST':
@@ -492,7 +495,12 @@ class OriginDbHandler(OriginBase):
                 return aresp
 
         if req.method in ('PUT', 'POST'):
-            return self.origin_db_puts_posts(env, req)
+            try:
+                return self.origin_db_puts_posts(env, req)
+            except OriginDbFailure, e:
+                self.logger.exception(e)
+                #TODO: get better error message
+                return HTTPInternalServerError('Problem saving CDN data')
         if req.method == 'GET':
             return self.origin_db_get(env, req)
         if req.method == 'HEAD':
