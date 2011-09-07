@@ -17,7 +17,7 @@ from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized, HTTPNoContent, HTTPAccepted, HTTPCreated, \
     HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
-    HTTPInternalServerError
+    HTTPInternalServerError, HTTPPreconditionFailed
 from hashlib import md5
 import re
 from swift.common import utils
@@ -36,6 +36,7 @@ SWIFT_FETCH_SIZE = 100 * 1024
 
 class InvalidContentType(Exception):
     pass
+
 
 class OriginDbFailure(Exception):
     pass
@@ -172,9 +173,8 @@ class CdnHandler(OriginBase):
     def __init__(self, app, conf):
         OriginBase.__init__(self, app, conf)
         self.logger = get_logger(conf, log_route='origin_cdn')
-        self.max_cdn_file_size = conf.get('max_cdn_file_size', 10 * 1024**3)
-        self.cdn_chunking_threshold = conf.get('cdn_chunking_threshold',
-                                               10 * 1024**2)
+        self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
+                                              10 * 1024 ** 3))
         self.cdn_regexes = []
         for key in self.conf.keys():
             if key.startswith('cdn_uri_regex_'):
@@ -255,6 +255,7 @@ class CdnHandler(OriginBase):
         return HTTPNotFound(request=req,
                             headers=self._getCacheHeaders(CACHE_404))
 
+
 class OriginDbHandler(OriginBase):
     '''
     Origin server for public containers
@@ -289,7 +290,7 @@ class OriginDbHandler(OriginBase):
             try:
                 cdn_enabled, ttl, log_ret = cdn_data[len('x-cdn/'):].split('-')
                 cdn_enabled = cdn_enabled.lower() in TRUE_VALUES
-                log_ret= log_ret.lower() in TRUE_VALUES
+                log_ret = log_ret.lower() in TRUE_VALUES
                 ttl = int(ttl)
             except ValueError:
                 raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
@@ -570,9 +571,11 @@ class OriginServer(object):
             if not check_utf8(req.path_info):
                 #TODO: the current origin server accepts ISO-8859-1 object
                 # names and encodes it into unicode.  do I have to do this?
-                return HTTPPreconditionFailed(request=req, body='Invalid UTF8')
+                return HTTPPreconditionFailed(
+                    request=req, body='Invalid UTF8')(env, start_response)
             return handler.handle_request(env, req)(env, start_response)
         return self.app(env, start_response)
+
 
 def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
