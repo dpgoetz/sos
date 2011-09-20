@@ -269,6 +269,7 @@ class OriginDbHandler(OriginBase):
         self.ssl_cdn_uri_format = conf.get('outgoing_ssl_cdn_uri_format')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
+        self.delete_enabled = self.conf.get('delete_enabled', 'false').lower()
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -381,6 +382,35 @@ class OriginDbHandler(OriginBase):
             return Response(body=response_body, headers=resp_headers)
         else:
             return HTTPNotFound(request=req)
+
+    def origin_db_delete(self, env, req):
+        ''' Handles DELETEs in the Origin database '''
+        if self.delete_enabled != 'true':
+            return HTTPMethodNotAllowed(request=req)
+        try:
+            version, account, container = utils.split_path(req.path, 1, 3)
+        except IndexError:
+            return HTTPBadRequest('Invalid request. '
+                                  'URI format: /<api version>/<account>/<container>')
+        hsh = self._hash_path(account, container)
+        cdn_obj_path = self._get_hsh_obj_path(hsh)
+        resp = make_pre_authed_request(env, 'DELETE',
+                cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
+
+        # A 404 means it's already deleted, which is okay
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise OriginDbFailure('Could not DELETE .hash obj in origin '
+                'db: %s %s' % (cdn_obj_path, resp.status_int))
+
+        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account, account, container)
+        list_resp = make_pre_authed_request(env, 'DELETE',
+                cdn_list_path, agent='SwiftOrigin').get_response(self.app)
+
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise OriginDbFailure('Could not DELETE listing path in origin '
+                'db: %s %s' % (cdn_list_path, list_resp.status_int))
+
+        return HTTPNoContent(request=req)
 
     def _get_cdn_uris(self, hsh):
         uri_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
@@ -507,7 +537,7 @@ class OriginDbHandler(OriginBase):
         if req.method == 'HEAD':
             return self.origin_db_head(env, req)
         if req.method == 'DELETE':
-            return HTTPMethodNotAllowed()
+            return self.origin_db_delete(env, req)
         return HTTPNotFound()
 
 
@@ -558,7 +588,9 @@ class OriginServer(object):
         host = env['HTTP_HOST'].split(':')[0]
         #TODO: is there something that I ned to do about the environ when
         #I re route this request?
-        hostNoHash = host.split('.', 1)[1]
+        hostNoHash = ''
+        if host.find('.') != -1:
+            hostNoHash = host.split('.', 1)[1]
 
         handler = None
         if host in self.origin_db_hosts:
