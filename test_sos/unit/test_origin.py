@@ -39,6 +39,7 @@ origin_admin_key = unittest
 origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
+hash_path_suffix = testing
 [outgoing_url_format]
 # the entries in this section "key = value" determines the blah blah...
 X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
@@ -199,6 +200,19 @@ class TestOrigin(unittest.TestCase):
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
         self.assertEquals(resp.status_int, 404)
+
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})(FakeApp())
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
 
     def test_origin_db_post_fail(self):
         self.test_origin.app = FakeApp(iter([('204 No Content', {}, '')]))
@@ -437,6 +451,7 @@ origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
+hash_path_suffix = testing
 '''.split('\n'))
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})
@@ -607,6 +622,7 @@ origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
+hash_path_suffix = testing
 [incoming_url_regex]
 regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>(.+))?$
 '''.split('\n'))
@@ -628,6 +644,7 @@ origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
+hash_path_suffix = testing
 '''.split('\n'))
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})

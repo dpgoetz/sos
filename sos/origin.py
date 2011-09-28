@@ -84,8 +84,10 @@ class OriginBase(object):
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
-        self.hash_suffix = conf.get('hash_path_suffix', 'abcde')
+        self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
+        if not self.hash_suffix:
+            raise InvalidConfiguration('Please provide a hash_path_suffix')
 
 #    def _valid_setup(self):
 #        #TODO: this later
