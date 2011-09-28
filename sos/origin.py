@@ -41,6 +41,8 @@ class InvalidContentType(Exception):
 class OriginDbFailure(Exception):
     pass
 
+class InvalidConfiguration(Exception):
+    pass
 
 class HashData(object):
     '''
@@ -87,7 +89,6 @@ class OriginBase(object):
 
 #    def _valid_setup(self):
 #        #TODO: this later
-#        return bool(self.cdn_uri_format and self.ssl_cdn_uri_format)
 
     def _hash_path(self, account, container):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
@@ -175,11 +176,15 @@ class CdnHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_cdn')
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
                                               10 * 1024 ** 3))
+        if not self._valid_setup(conf):
+            raise InvalidConfiguration('Invalid config for CdnHandler')
         self.cdn_regexes = []
-        for key in self.conf.keys():
-            if key.startswith('cdn_uri_regex_'):
-                regex = re.compile(self.conf[key])
-                self.cdn_regexes.append(regex)
+        for key, val in conf['incoming_url_regex'].items():
+            regex = re.compile(val)
+            self.cdn_regexes.append(regex)
+
+    def _valid_setup(self, conf):
+        return bool(conf.get('incoming_url_regex'))
 
     def _getCacheHeaders(self, ttl):
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
@@ -263,10 +268,9 @@ class OriginDbHandler(OriginBase):
 
     def __init__(self, app, conf):
         OriginBase.__init__(self, app, conf)
+        self.conf = conf
         self.logger = get_logger(conf, log_route='origin_db')
-        self.cdn_hostname = conf.get('cdn_uri', 'cf1.rackcdn.com')
-        self.cdn_uri_format = conf.get('outgoing_cdn_uri_format')
-        self.ssl_cdn_uri_format = conf.get('outgoing_ssl_cdn_uri_format')
+        self.cdn_hostname = conf.get('cdn_url', 'cf1.rackcdn.com')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
 
@@ -286,6 +290,8 @@ class OriginDbHandler(OriginBase):
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
         hsh = self._hash_path(account, container)
+        if output_format not in ('json', 'xml'):
+            return container
         if cdn_data.startswith('x-cdn/'):
             try:
                 cdn_enabled, ttl, log_ret = cdn_data[len('x-cdn/'):].split('-')
@@ -295,29 +301,23 @@ class OriginDbHandler(OriginBase):
             except ValueError:
                 raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                     (account, container, cdn_data))
-            cdn_uri_dict = self._get_cdn_uris(hsh)
+            cdn_url_dict = self._get_cdn_urls(hsh, 'GET',
+                                              request_format_tag=output_format)
         else:
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
         if only_cdn_enabled and not cdn_enabled:
             return None
         output_dict = {'name': container, 'cdn_enabled': cdn_enabled,
-                       'ttl': ttl, 'cdn_uri': cdn_uri_dict['X-CDN-URI'],
-                       'cdn_ssl_uri': cdn_uri_dict['X-CDN-SSL-URI'],
-                       'log_retention': log_ret}
-        if output_format == 'json':
-            return output_dict
-        elif output_format == 'xml':
+                       'ttl': ttl, 'log_retention': log_ret}
+        output_dict.update(cdn_url_dict)
+        if output_format == 'xml':
+            xml_data = '\n'.join(['<%s>%s</%s>' % (tag, val, tag) 
+                                  for tag, val in output_dict.items()])
             return '''  <container>
-    <name>%(name)s</name>
-    <cdn_enabled>%(cdn_enabled)s</cdn_enabled>
-    <ttl>%(ttl)s</ttl>
-    <cdn_url>%(cdn_uri)s</cdn_url>
-    <cdn_ssl_url>%(cdn_ssl_uri)s</cdn_ssl_url>
-    <log_retention>%(log_retention)s</log_retention>
-  </container>''' % output_dict
-        else:
-            return container
+            %s
+  </container>''' % xml_data
+        return output_dict
 
     def origin_db_get(self, env, req):
         '''
@@ -329,10 +329,12 @@ class OriginDbHandler(OriginBase):
             account = req.path.split('/')[2]
         except IndexError:
             return HTTPBadRequest('Invalid request. '
-                                  'URI format: /<api version>/<account>')
+                                  'URL format: /<api version>/<account>')
         #TODO: make sure to test with unicode container names
         marker = get_param(req, 'marker', default='')
         list_format = get_param(req, 'format')
+        if list_format:
+            list_format = list_format.lower()
         enabled_only = get_param(req, 'enabled',
                                  default='false').lower() in TRUE_VALUES
         limit = get_param(req, 'limit')
@@ -382,10 +384,32 @@ class OriginDbHandler(OriginBase):
         else:
             return HTTPNotFound(request=req)
 
-    def _get_cdn_uris(self, hsh):
-        uri_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
-        return {'X-CDN-URI': (self.cdn_uri_format % uri_vars).rstrip('/'),
-            'X-CDN-SSL-URI': (self.ssl_cdn_uri_format % uri_vars).rstrip('/')}
+    def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
+        '''
+        Returns a dict of the outgoing urls for a HEAD or GET req.
+        :param request_format_tag: the tag matching the section in the conf
+            file that will be used to format the request
+        '''
+        format_section = None
+        #TODO: add tests for each of these cases
+        #TODO: functional tests for all the different requests :(
+        section_names = ['outgoing_url_format_%s_%s' % (request_type.lower(),
+                                                        request_format_tag),
+                         'outgoing_url_format_%s' % request_type.lower(),
+                         'outgoing_url_format']
+        for section_name in section_names:
+            format_section = self.conf.get(section_name)
+            if format_section:
+                break
+        else:
+            raise InvalidConfiguration('Could not find format for: %s, %s: %s' %
+                (request_type, request_format_tag, self.conf))
+
+        url_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
+        cdn_urls = {}
+        for key, url in format_section.items():
+            cdn_urls[key] = (url % url_vars).rstrip('/')
+        return cdn_urls
 
     def origin_db_head(self, env, req):
         '''
@@ -399,7 +423,7 @@ class OriginDbHandler(OriginBase):
         cdn_obj_path = self._get_hsh_obj_path(hsh)
         hash_data = self._get_cdn_data(env, cdn_obj_path)
         if hash_data:
-            headers = self._get_cdn_uris(hsh)
+            headers = self._get_cdn_urls(hsh, 'HEAD')
             headers.update({'X-TTL': hash_data.ttl,
                 'X-Log-Retention': hash_data.logs_enabled.title(),
                 'X-CDN-Enabled': hash_data.cdn_enabled.title()})
@@ -414,7 +438,6 @@ class OriginDbHandler(OriginBase):
             vsn, account, container = utils.split_path(req.path, 1, 3, True)
         except ValueError:
             return HTTPNotFound()
-
         hsh = self._hash_path(account, container)
         cdn_obj_path = self._get_hsh_obj_path(hsh)
         ttl, cdn_enabled, logs_enabled = '295200', 'true', 'false'
@@ -477,7 +500,8 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not PUT/POST to cdn listing in '
                 'origin db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
         cdn_success = True
-        cdn_url_headers = self._get_cdn_uris(hsh)
+        # PUTs and POSTs have the headers as HEAD
+        cdn_url_headers = self._get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
             return HTTPAccepted(request=req,
                                 headers=cdn_url_headers)
@@ -494,7 +518,6 @@ class OriginDbHandler(OriginBase):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-
         if req.method in ('PUT', 'POST'):
             try:
                 return self.origin_db_puts_posts(env, req)
@@ -517,25 +540,28 @@ class OriginServer(object):
         self.app = app
         #self.conf = conf
         origin_conf = conf['sos_conf']
-        self.conf = readconf(origin_conf, 'sos', raw=True)
+        conf = readconf(origin_conf, raw=True)
+        self.conf = conf['sos']
+        for format_section in ['outgoing_url_format',
+                'outgoing_url_format_head','outgoing_url_format_get',
+                'outgoing_url_format_get_xml', 'outgoing_url_format_get_json',
+                'incoming_url_regex']:
+            if conf.get(format_section, None):
+                self.conf[format_section] = conf[format_section]
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [host for host in
             self.conf.get('origin_db_hosts', '').split(',') if host]
         self.origin_cdn_hosts = [host for host in
             self.conf.get('origin_cdn_hosts', '').split(',') if host]
-        self.cdn_uri_format = self.conf.get('outgoing_cdn_uri_format')
-        self.ssl_cdn_uri_format = self.conf.get('outgoing_ssl_cdn_uri_format')
 
-    def _valid_setup(self):
-        #TODO this doesn't work
-        valid_setup = bool(self.origin_db_hosts and self.origin_cdn_hosts and
-                           self.cdn_uri_format and self.ssl_cdn_uri_format)
-        if not valid_setup:
-            try:
-                self.logger.critical(_('Invalid origin conf file!'))
-            except Exception:
-                pass
-        return valid_setup
+#    def _valid_setup(self):
+#        return True
+#        if not valid_setup:
+#            try:
+#                self.logger.critical(_('Invalid origin conf file!'))
+#            except Exception:
+#                pass
+#        return valid_setup
 
     def __call__(self, env, start_response):
         '''
@@ -553,27 +579,34 @@ class OriginServer(object):
         :param start_response: WSGI callable
         '''
         #TODO: need to look at how the logs_enabled thing works :(
-        if not self._valid_setup():
-            return self.app(env, start_response)
+#        if not self._valid_setup():
+#            return self.app(env, start_response)
         host = env['HTTP_HOST'].split(':')[0]
         #TODO: is there something that I ned to do about the environ when
         #I re route this request?
+        try:
+            handler = None
+            if host in self.origin_db_hosts:
+                handler = OriginDbHandler(self.app, self.conf)
+            if host in self.origin_cdn_hosts:
+                handler = CdnHandler(self.app, self.conf)
+            if env['PATH_INFO'].startswith(self.origin_prefix):
+                handler = AdminHandler(self.app, self.conf)
+            if handler:
+                req = Request(env)
+                if not check_utf8(req.path_info):
+                    #TODO: the current origin server accepts ISO-8859-1 object
+                    # names and encodes it into unicode.  do I have to do this?
+                    return HTTPPreconditionFailed(
+                        request=req, body='Invalid UTF8')(env, start_response)
 
-        handler = None
-        if host in self.origin_db_hosts:
-            handler = OriginDbHandler(self.app, self.conf)
-        if host in self.origin_cdn_hosts:
-            handler = CdnHandler(self.app, self.conf)
-        if env['PATH_INFO'].startswith(self.origin_prefix):
-            handler = AdminHandler(self.app, self.conf)
-        if handler:
-            req = Request(env)
-            if not check_utf8(req.path_info):
-                #TODO: the current origin server accepts ISO-8859-1 object
-                # names and encodes it into unicode.  do I have to do this?
-                return HTTPPreconditionFailed(
-                    request=req, body='Invalid UTF8')(env, start_response)
-            return handler.handle_request(env, req)(env, start_response)
+                return handler.handle_request(env, req)(env, start_response)
+        except InvalidConfiguration, e:
+            logger = get_logger(self.conf, log_route='origin_server')
+            logger.exception(e)
+            #TODO: get better error message
+            return HTTPInternalServerError(e)(env, start_response)
+                
         return self.app(env, start_response)
 
 
