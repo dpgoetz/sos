@@ -272,7 +272,6 @@ class OriginDbHandler(OriginBase):
         OriginBase.__init__(self, app, conf)
         self.conf = conf
         self.logger = get_logger(conf, log_route='origin_db')
-        self.cdn_hostname = conf.get('cdn_url', 'cf1.rackcdn.com')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
 
