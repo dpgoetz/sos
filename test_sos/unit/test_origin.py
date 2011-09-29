@@ -109,6 +109,28 @@ class FakeConn(object):
         self.body = ''
         return body
 
+class FakeMemcache(object):
+
+    def __init__(self, override_get=''):
+        self.store = {}
+        self.override_get = override_get
+
+    def get(self, key):
+        if self.override_get:
+            return self.override_get
+        return self.store.get(key)
+
+    def set(self, key, value, serialize=False, timeout=0):
+        self.store[key] = value
+        return True
+
+    def delete(self, key):
+        try:
+            del self.store[key]
+        except Exception:
+            pass
+        return True
+
 
 class TestOrigin(unittest.TestCase):
 
@@ -443,6 +465,78 @@ max_cdn_file_size = 0
             environ={'REQUEST_METHOD': 'nowhere'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 404)
+
+    def test_db_memcache_head(self):
+        def mock_memcache(env):
+            return FakeMemcache(override_get=json.dumps({'account': 'acc',
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
+                'cdn_enabled': 'false'}))
+        was_memcache = utils.cache_from_env
+        try:
+            utils.cache_from_env = mock_memcache
+            self.test_origin.app = FakeApp(iter([('200 Ok', {},
+                json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
+                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+            req = Request.blank(
+                'http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 204)
+            self.assertEquals(resp.headers['X-TTL'], 5555)
+        finally:
+            utils.cache_from_env = was_memcache
+
+    def test_db_memcache_post(self):
+
+        def mock_memcache(env):
+            fake_mem = FakeMemcache(override_get=json.dumps({'account': 'acc',
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
+                'cdn_enabled': 'false'}))
+            def check_set(key, value, serialize=True, timeout=0):
+                data = json.loads(value)
+                if data['ttl'] != 5555:
+                    raise Exception('Memcache not working')
+            fake_mem.set = check_set
+            return fake_mem
+        was_memcache = utils.cache_from_env
+        utils.cache_from_env = mock_memcache
+        try:
+            prev_data = json.dumps({'account': 'acc', 'container': 'cont',
+                    'ttl': 1234, 'logs_enabled': 'true',
+                    'cdn_enabled': 'false'})
+            data = {'account': 'acc', 'container': 'cont', 'cdn_enabled':
+                'true'}
+            self.test_origin.app = FakeApp(iter([ # no cdn call- hit memcache
+                ('204 No Content', {}, ''),
+                ('404 Not Found', {}, ''), # HEAD call, see if create cont
+                ('204 No Content', {}, ''), # put create cont
+                ('204 No Content', {}, ''), # put to add obj to listing
+                ]))
+            req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'PUT'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 201)
+
+        finally:
+            utils.cache_from_env = was_memcache
+
+    def test_db_memcache_fail(self):
+        def mock_memcache(env):
+            return FakeMemcache(override_get=json.dumps({'ttl': 5555}))
+        was_memcache = utils.cache_from_env
+        try:
+            utils.cache_from_env = mock_memcache
+            self.test_origin.app = FakeApp(iter([('200 Ok', {},
+                json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
+                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+            req = Request.blank(
+                'http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 204)
+            self.assertEquals(resp.headers['X-TTL'], 1234)
+        finally:
+            utils.cache_from_env = was_memcache
 
     def test_origin_db_fail_bad_config(self):
         fake_conf = FakeConf(data='''[sos]

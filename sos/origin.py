@@ -32,7 +32,7 @@ except ImportError:
 CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
-
+MEMCACHE_TIMEOUT = 3600
 
 class InvalidContentType(Exception):
     pass
@@ -108,10 +108,24 @@ class OriginBase(object):
         # get defaults
         #TODO: I think I should cache this in memcache later
         # if i do this then i'll have to clear it on PUTs / POSTs
+        memcache_client = utils.cache_from_env(env)
+        memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+        if memcache_client:
+            cached_cdn_data = memcache_client.get(memcache_key)
+            if cached_cdn_data:
+                try:
+                    return HashData.create_from_json(cached_cdn_data)
+                except ValueError:
+                    pass
+
         resp = make_pre_authed_request(env, 'GET',
             cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
         if resp.status_int // 100 == 2:
             try:
+                if memcache_client:
+                    memcache_client.set(memcache_key, resp.body,
+                        serialize=False, timeout=MEMCACHE_TIMEOUT)
+
                 return HashData.create_from_json(resp.body)
             except ValueError:
                 pass # TODO: ignore json errors in the data files, ok right?
@@ -476,6 +490,13 @@ class OriginDbHandler(OriginBase):
         if cdn_obj_resp.status_int // 100 != 2:
             raise OriginDbFailure('Could not PUT .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
+
+        #TODO: when DELETE gets added- need to clear out the memcache data
+        memcache_client = utils.cache_from_env(env)
+        if memcache_client:
+            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+            memcache_client.set(memcache_key, cdn_obj_data,
+                serialize=False, timeout=MEMCACHE_TIMEOUT)
 
         listing_cont_path = '/v1/%s/%s' % (self.origin_account, account)
         resp = make_pre_authed_request(env, 'HEAD',
