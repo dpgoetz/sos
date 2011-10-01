@@ -39,17 +39,21 @@ origin_admin_key = unittest
 origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
-outgoing_cdn_uri_format = http://cdn.com:8080/h%(hash)s/r%(hash_mod)d
-outgoing_ssl_cdn_uri_format = https://ssl.cdn.com/h%(hash)s
-cdn_uri_regex_0 = ''' \
-'''^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
-cdn_uri_regex_1 = ''' \
-'''^https://ssl.origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
+hash_path_suffix = testing
+[outgoing_url_format]
+# the entries in this section "key = value" determines the blah blah...
+X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
+X-CDN-SSL-URI = https://ssl.origin_cdn.com/h%(hash)s
+X-CDN-STREAMING-URI = http://stream.origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
+[incoming_url_regex]
+regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
+regex_1 = ^https://ssl.origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
 '''.split('\n')
 
     def readline(self):
         if self.data:
-            return self.data.pop(0)
+            op = self.data.pop(0)
+            return op #self.data.pop(0)
         return ''
 
 
@@ -105,6 +109,28 @@ class FakeConn(object):
         self.body = ''
         return body
 
+class FakeMemcache(object):
+
+    def __init__(self, override_get=''):
+        self.store = {}
+        self.override_get = override_get
+
+    def get(self, key):
+        if self.override_get:
+            return self.override_get
+        return self.store.get(key)
+
+    def set(self, key, value, serialize=False, timeout=0):
+        self.store[key] = value
+        return True
+
+    def delete(self, key):
+        try:
+            del self.store[key]
+        except Exception:
+            pass
+        return True
+
 
 class TestOrigin(unittest.TestCase):
 
@@ -113,16 +139,16 @@ class TestOrigin(unittest.TestCase):
         self.test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})(FakeApp())
 
-    def test_valid_setup(self):
-        fake_conf = FakeConf(data=['[sos]'])
-        test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})(FakeApp())
-        self.assertFalse(test_origin._valid_setup())
-
-        fake_conf = FakeConf()
-        test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})(FakeApp())
-        self.assertTrue(test_origin._valid_setup())
+#    def test_valid_setup(self):
+#        fake_conf = FakeConf(data=['[sos]'])
+#        test_origin = origin.filter_factory(
+#            {'sos_conf': fake_conf})(FakeApp())
+#        self.assertFalse(test_origin._valid_setup())
+#
+#        fake_conf = FakeConf()
+#        test_origin = origin.filter_factory(
+#            {'sos_conf': fake_conf})(FakeApp())
+#        self.assertTrue(test_origin._valid_setup())
 
     def test_no_handlers(self):
         self.test_origin.app = FakeApp(iter([('204 No Content', {}, '')]))
@@ -196,6 +222,19 @@ class TestOrigin(unittest.TestCase):
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
         self.assertEquals(resp.status_int, 404)
+
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})(FakeApp())
+        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
 
     def test_origin_db_post_fail(self):
         self.test_origin.app = FakeApp(iter([('204 No Content', {}, '')]))
@@ -370,6 +409,92 @@ class TestOrigin(unittest.TestCase):
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 405)
 
+    def test_origin_db_delete_disabled(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = false
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 405)
+
+    def test_origin_db_delete_enabled(self):
+        # Add mocked memcache
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('404 No Content', {}, ''),
+            ('204 No Content', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_origin_db_delete_bad_request(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('500 Internal Server Error', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 400)
+
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
+
+    def test_origin_db_delete_bad_request_second(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('204 No Content', {}, ''),
+            ('500 Internal Server Error', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
+
     def test_origin_db_get_fail(self):
         # bad listing lines are ignored
         listing_data = json.dumps([
@@ -426,6 +551,98 @@ class TestOrigin(unittest.TestCase):
             environ={'REQUEST_METHOD': 'nowhere'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 404)
+
+    def test_db_memcache_head(self):
+        def mock_memcache(env):
+            return FakeMemcache(override_get=json.dumps({'account': 'acc',
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
+                'cdn_enabled': 'false'}))
+        was_memcache = utils.cache_from_env
+        try:
+            utils.cache_from_env = mock_memcache
+            self.test_origin.app = FakeApp(iter([('200 Ok', {},
+                json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
+                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+            req = Request.blank(
+                'http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 204)
+            self.assertEquals(resp.headers['X-TTL'], 5555)
+        finally:
+            utils.cache_from_env = was_memcache
+
+    def test_db_memcache_post(self):
+
+        def mock_memcache(env):
+            fake_mem = FakeMemcache(override_get=json.dumps({'account': 'acc',
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
+                'cdn_enabled': 'false'}))
+            def check_set(key, value, serialize=True, timeout=0):
+                data = json.loads(value)
+                if data['ttl'] != 5555:
+                    raise Exception('Memcache not working')
+            fake_mem.set = check_set
+            return fake_mem
+        was_memcache = utils.cache_from_env
+        utils.cache_from_env = mock_memcache
+        try:
+            prev_data = json.dumps({'account': 'acc', 'container': 'cont',
+                    'ttl': 1234, 'logs_enabled': 'true',
+                    'cdn_enabled': 'false'})
+            data = {'account': 'acc', 'container': 'cont', 'cdn_enabled':
+                'true'}
+            self.test_origin.app = FakeApp(iter([ # no cdn call- hit memcache
+                ('204 No Content', {}, ''),
+                ('404 Not Found', {}, ''), # HEAD call, see if create cont
+                ('204 No Content', {}, ''), # put create cont
+                ('204 No Content', {}, ''), # put to add obj to listing
+                ]))
+            req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'PUT'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 201)
+
+        finally:
+            utils.cache_from_env = was_memcache
+
+    def test_db_memcache_fail(self):
+        def mock_memcache(env):
+            return FakeMemcache(override_get=json.dumps({'ttl': 5555}))
+        was_memcache = utils.cache_from_env
+        try:
+            utils.cache_from_env = mock_memcache
+            self.test_origin.app = FakeApp(iter([('200 Ok', {},
+                json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
+                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+            req = Request.blank(
+                'http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.test_origin)
+            self.assertEquals(resp.status_int, 204)
+            self.assertEquals(resp.headers['X-TTL'], 1234)
+        finally:
+            utils.cache_from_env = was_memcache
+
+    def test_origin_db_fail_bad_config(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/true1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
+        test_origin = test_origin(FakeApp(iter([('200 Ok', {}, listing_data)])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont?format=JSON',
+            environ={'REQUEST_METHOD': 'GET',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
 
     def test_split_paths(self):
 
@@ -584,9 +801,10 @@ origin_admin_key = unittest
 origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
-outgoing_cdn_uri_format = http://cdn.com:8080/h%(hash)s/r%(hash_mod)d
-outgoing_ssl_cdn_uri_format = https://ssl.cdn.com/h%(hash)s
 max_cdn_file_size = 0
+hash_path_suffix = testing
+[incoming_url_regex]
+regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>(.+))?$
 '''.split('\n'))
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})
@@ -599,6 +817,22 @@ max_cdn_file_size = 0
                      'swift.cdn_object_name': 'obj1.jpg'})
         resp = req.get_response(test_origin)
         self.assertEquals(resp.status_int, 400)
+
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([ ])))
+        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
 
 if __name__ == '__main__':
     unittest.main()
