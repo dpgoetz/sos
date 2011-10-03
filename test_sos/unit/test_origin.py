@@ -496,6 +496,8 @@ max_cdn_file_size = 0
                 data = json.loads(value)
                 if data['ttl'] != 5555:
                     raise Exception('Memcache not working')
+                if data['cdn_enabled'] != 'true':
+                    raise Exception('Memcache not working')
             fake_mem.set = check_set
             return fake_mem
         was_memcache = utils.cache_from_env
@@ -513,7 +515,8 @@ max_cdn_file_size = 0
                 ('204 No Content', {}, ''), # put to add obj to listing
                 ]))
             req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
-                environ={'REQUEST_METHOD': 'PUT'})
+                environ={'REQUEST_METHOD': 'PUT'},
+                headers={'x-cdn-enabled': 'True'})
             resp = req.get_response(self.test_origin)
             self.assertEquals(resp.status_int, 201)
 

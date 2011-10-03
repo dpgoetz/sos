@@ -34,6 +34,7 @@ CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 MEMCACHE_TIMEOUT = 3600
 
+
 class InvalidContentType(Exception):
     pass
 
@@ -41,8 +42,10 @@ class InvalidContentType(Exception):
 class OriginDbFailure(Exception):
     pass
 
+
 class InvalidConfiguration(Exception):
     pass
+
 
 class HashData(object):
     '''
@@ -327,7 +330,7 @@ class OriginDbHandler(OriginBase):
                        'ttl': ttl, 'log_retention': log_ret}
         output_dict.update(cdn_url_dict)
         if output_format == 'xml':
-            xml_data = '\n'.join(['<%s>%s</%s>' % (tag, val, tag) 
+            xml_data = '\n'.join(['<%s>%s</%s>' % (tag, val, tag)
                                   for tag, val in output_dict.items()])
             return '''  <container>
             %s
@@ -417,8 +420,8 @@ class OriginDbHandler(OriginBase):
             if format_section:
                 break
         else:
-            raise InvalidConfiguration('Could not find format for: %s, %s: %s' %
-                (request_type, request_format_tag, self.conf))
+            raise InvalidConfiguration('Could not find format for: %s, %s: %s'
+                % (request_type, request_format_tag, self.conf))
 
         url_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
         cdn_urls = {}
@@ -565,7 +568,7 @@ class OriginServer(object):
         conf = readconf(origin_conf, raw=True)
         self.conf = conf['sos']
         for format_section in ['outgoing_url_format',
-                'outgoing_url_format_head','outgoing_url_format_get',
+                'outgoing_url_format_head', 'outgoing_url_format_get',
                 'outgoing_url_format_get_xml', 'outgoing_url_format_get_json',
                 'incoming_url_regex']:
             if conf.get(format_section, None):
@@ -628,7 +631,6 @@ class OriginServer(object):
             logger.exception(e)
             #TODO: get better error message
             return HTTPInternalServerError(e)(env, start_response)
-                
         return self.app(env, start_response)
 
 
