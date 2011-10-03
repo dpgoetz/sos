@@ -18,8 +18,6 @@ try:
 except ImportError:
     import json
 import unittest
-#from contextlib import contextmanager
-#from time import time
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized
@@ -125,11 +123,7 @@ class FakeMemcache(object):
         return True
 
     def delete(self, key):
-        try:
-            del self.store[key]
-        except Exception:
-            pass
-        return True
+        raise Exception('delete called')
 
 
 class TestOrigin(unittest.TestCase):
@@ -428,7 +422,6 @@ delete_enabled = false
         self.assertEquals(resp.status_int, 405)
 
     def test_origin_db_delete_enabled(self):
-        # Add mocked memcache
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
 origin_cdn_hosts = origin_cdn.com
@@ -448,6 +441,36 @@ delete_enabled = true
             environ={'REQUEST_METHOD': 'DELETE',})
         resp = req.get_response(test_origin)
         self.assertEquals(resp.status_int, 204)
+
+        def mock_memcache(env):
+            return FakeMemcache()
+        was_memcache = utils.cache_from_env
+
+        try:
+            utils.cache_from_env = mock_memcache
+            fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+            test_origin = origin.filter_factory(
+                {'sos_conf': fake_conf})
+            test_origin = test_origin(FakeApp(iter([
+                ('404 No Content', {}, ''),
+                ('204 No Content', {}, '')
+                ])))
+            req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+                environ={'REQUEST_METHOD': 'DELETE',})
+            try:
+                resp = req.get_response(test_origin)
+            except Exception, e:
+                self.assertEquals(str(e), 'delete called')
+        finally:
+            utils.cache_from_env = was_memcache
 
     def test_origin_db_delete_bad_request(self):
         fake_conf = FakeConf(data='''[sos]

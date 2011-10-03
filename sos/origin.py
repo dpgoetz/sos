@@ -291,7 +291,8 @@ class OriginDbHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_db')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
-        self.delete_enabled = self.conf.get('delete_enabled', 'f').lower() in TRUE_VALUES
+        self.delete_enabled = self.conf.get('delete_enabled', 'f').lower() in \
+            TRUE_VALUES
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -438,7 +439,7 @@ class OriginDbHandler(OriginBase):
             version, account, container = utils.split_path(req.path, 1, 3)
         except ValueError:
             return HTTPBadRequest('Invalid request. '
-                                  'URI format: /<api version>/<account>/<container>')
+                'URI format: /<api version>/<account>/<container>')
         hsh = self._hash_path(account, container)
         cdn_obj_path = self._get_hsh_obj_path(hsh)
         resp = make_pre_authed_request(env, 'DELETE',
@@ -449,7 +450,8 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not DELETE .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, resp.status_int))
 
-        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account, account, container)
+        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
+                                          account, container)
         list_resp = make_pre_authed_request(env, 'DELETE',
                 cdn_list_path, agent='SwiftOrigin').get_response(self.app)
 
@@ -461,8 +463,7 @@ class OriginDbHandler(OriginBase):
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
             memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
-            memcache_client.set(memcache_key, '',
-                serialize=False, timeout=MEMCACHE_TIMEOUT)
+            memcache_client.delete(memcache_key)
         return HTTPNoContent(request=req)
 
     def origin_db_head(self, env, req):
@@ -657,7 +658,8 @@ class OriginServer(object):
             handler = None
             if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf)
-            if host in self.origin_cdn_hosts or hostNoHash in self.origin_cdn_hosts:
+            if (host in self.origin_cdn_hosts or
+                hostNoHash in self.origin_cdn_hosts):
                 handler = CdnHandler(self.app, self.conf)
             if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf)
