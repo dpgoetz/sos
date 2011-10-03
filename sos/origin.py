@@ -291,6 +291,7 @@ class OriginDbHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_db')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
+        self.delete_enabled = self.conf.get('delete_enabled', 'f').lower() in TRUE_VALUES
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -429,6 +430,41 @@ class OriginDbHandler(OriginBase):
             cdn_urls[key] = (url % url_vars).rstrip('/')
         return cdn_urls
 
+    def origin_db_delete(self, env, req):
+        ''' Handles DELETEs in the Origin database '''
+        if not self.delete_enabled:
+            return HTTPMethodNotAllowed(request=req)
+        try:
+            version, account, container = utils.split_path(req.path, 1, 3)
+        except ValueError:
+            return HTTPBadRequest('Invalid request. '
+                                  'URI format: /<api version>/<account>/<container>')
+        hsh = self._hash_path(account, container)
+        cdn_obj_path = self._get_hsh_obj_path(hsh)
+        resp = make_pre_authed_request(env, 'DELETE',
+                cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
+
+        # A 404 means it's already deleted, which is okay
+        if resp.status_int // 100 != 2 and resp.status_int != 404:
+            raise OriginDbFailure('Could not DELETE .hash obj in origin '
+                'db: %s %s' % (cdn_obj_path, resp.status_int))
+
+        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account, account, container)
+        list_resp = make_pre_authed_request(env, 'DELETE',
+                cdn_list_path, agent='SwiftOrigin').get_response(self.app)
+
+        if list_resp.status_int // 100 != 2 and list_resp.status_int != 404:
+            raise OriginDbFailure('Could not DELETE listing path in origin '
+                'db: %s %s' % (cdn_list_path, list_resp.status_int))
+
+        # Remove memcache entry
+        memcache_client = utils.cache_from_env(env)
+        if memcache_client:
+            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+            memcache_client.set(memcache_key, '',
+                serialize=False, timeout=MEMCACHE_TIMEOUT)
+        return HTTPNoContent(request=req)
+
     def origin_db_head(self, env, req):
         '''
         Handles HEAD requests into Origin database
@@ -555,7 +591,11 @@ class OriginDbHandler(OriginBase):
         if req.method == 'HEAD':
             return self.origin_db_head(env, req)
         if req.method == 'DELETE':
-            return HTTPMethodNotAllowed()
+            try:
+                return self.origin_db_delete(env, req)
+            except OriginDbFailure, e:
+                self.logger.exception(e)
+                return HTTPInternalServerError('Delete failed')
         return HTTPNotFound()
 
 
@@ -609,11 +649,15 @@ class OriginServer(object):
         host = env['HTTP_HOST'].split(':')[0]
         #TODO: is there something that I ned to do about the environ when
         #I re route this request?
+        hostNoHash = ''
+        if host.find('.') != -1:
+            hostNoHash = host.split('.', 1)[1]
+
         try:
             handler = None
             if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf)
-            if host in self.origin_cdn_hosts:
+            if host in self.origin_cdn_hosts or hostNoHash in self.origin_cdn_hosts:
                 handler = CdnHandler(self.app, self.conf)
             if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf)

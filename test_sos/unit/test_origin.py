@@ -409,6 +409,92 @@ max_cdn_file_size = 0
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 405)
 
+    def test_origin_db_delete_disabled(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = false
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 405)
+
+    def test_origin_db_delete_enabled(self):
+        # Add mocked memcache
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('404 No Content', {}, ''),
+            ('204 No Content', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_origin_db_delete_bad_request(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('500 Internal Server Error', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 400)
+
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
+
+    def test_origin_db_delete_bad_request_second(self):
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_cdn_hosts = origin_cdn.com
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+hash_path_suffix = testing
+delete_enabled = true
+'''.split('\n'))
+        test_origin = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        test_origin = test_origin(FakeApp(iter([
+            ('204 No Content', {}, ''),
+            ('500 Internal Server Error', {}, '')
+            ])))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'DELETE',})
+        resp = req.get_response(test_origin)
+        self.assertEquals(resp.status_int, 500)
+
     def test_origin_db_get_fail(self):
         # bad listing lines are ignored
         listing_data = json.dumps([
