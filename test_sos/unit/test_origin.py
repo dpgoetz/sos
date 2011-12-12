@@ -18,6 +18,7 @@ try:
 except ImportError:
     import json
 import unittest
+from hashlib import md5
 
 from webob import Request, Response
 from webob.exc import HTTPUnauthorized
@@ -38,6 +39,7 @@ origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 hash_path_suffix = testing
+hash_container_exponent = 1
 [outgoing_url_format]
 # the entries in this section "key = value" determines the blah blah...
 X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
@@ -261,16 +263,19 @@ max_cdn_file_size = 0
         self.assertTrue('Invalid X-TTL, must be between' in resp.body)
 
     def test_origin_db_put(self):
-        data = {'account': 'acc', 'container': 'cont',
-                'ttl': 29500, 'logs_enabled': 'false', 'cdn_enabled': 'true'}
+        def test_put(req):
+            check_hash = md5('/acc/cont/testing').hexdigest()
+            if check_hash in req.path:
+                return False
+            return True
         self.test_origin.app = FakeApp(iter([
             ('404 Not Found', {}, ''), # call to _get_cdn_data
-            ('204 No Content', {}, ''), # put to .hash file
+            ('204 No Content', {}, '', test_put), # put to .hash file
             ('404 Not Found', {}, ''), # HEAD call, see if create cont
             ('204 No Content', {}, ''), # put to create container
             ('204 No Content', {}, ''), # put to add obj to listing
             ]))
-        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont/',
             environ={'REQUEST_METHOD': 'PUT'},
             )
         resp = req.get_response(self.test_origin)
@@ -599,13 +604,14 @@ delete_enabled = true
 
         def mock_memcache(env):
             fake_mem = FakeMemcache(override_get=json.dumps({'account': 'acc',
-                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
-                'cdn_enabled': 'false'}))
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': True,
+                'cdn_enabled': False}))
             def check_set(key, value, serialize=True, timeout=0):
                 data = json.loads(value)
+                print data
                 if data['ttl'] != 5555:
                     raise Exception('Memcache not working')
-                if data['cdn_enabled'] != 'true':
+                if data['cdn_enabled'] != True:
                     raise Exception('Memcache not working')
             fake_mem.set = check_set
             return fake_mem
@@ -613,8 +619,8 @@ delete_enabled = true
         utils.cache_from_env = mock_memcache
         try:
             prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                    'ttl': 1234, 'logs_enabled': 'true',
-                    'cdn_enabled': 'false'})
+                    'ttl': 1234, 'logs_enabled': True,
+                    'cdn_enabled': False})
             data = {'account': 'acc', 'container': 'cont', 'cdn_enabled':
                 'true'}
             self.test_origin.app = FakeApp(iter([ # no cdn call- hit memcache
@@ -685,15 +691,15 @@ hash_path_suffix = testing
                 headers={'X-Origin-Admin-User': '.origin_admin',
                          'X-Origin-Admin-Key': 'unittest'}).get_response(
                          self.test_origin)
-            self.assertEquals(resp.status_int, 404)
-            resp = Request.blank('http://origin_db.com:8080/v1/acc',
+            self.assertEquals(resp.status_int, 400)
+            resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
                 environ={'REQUEST_METHOD': 'HEAD'}).get_response(
                 self.test_origin)
-            self.assertEquals(resp.status_int, 404)
-            resp = Request.blank('http://origin_db.com:8080/v1/acc',
+            self.assertEquals(resp.status_int, 400)
+            resp = Request.blank('http://origin_db.com:8080/v1/acc/cont/',
                 environ={'REQUEST_METHOD': 'PUT'}).get_response(
                 self.test_origin)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEquals(resp.status_int, 400)
         finally:
             utils.split_path = was_split
 

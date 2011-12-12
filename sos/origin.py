@@ -55,15 +55,18 @@ class HashData(object):
     def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
         self.account = account
         self.container = container
-        self.ttl = ttl
-        self.logs_enabled = logs_enabled
-        self.cdn_enabled = cdn_enabled
+        self.ttl = int(ttl)
+        self.logs_enabled = bool(logs_enabled)
+        self.cdn_enabled = bool(cdn_enabled)
 
     def get_json_str(self):
         data = {'account': self.account, 'container': self.container,
                 'ttl': self.ttl, 'logs_enabled': self.logs_enabled,
                 'cdn_enabled': self.cdn_enabled}
         return json.dumps(data)
+
+    def __str__(self):
+        return self.get_json_str()
 
     @classmethod
     def create_from_json(cls, json_str):
@@ -89,6 +92,7 @@ class OriginBase(object):
         self.conf = conf
         self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
+        self.hash_cont_expo = int(conf.get('hash_container_exponent', 3))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -99,11 +103,11 @@ class OriginBase(object):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
                                   self.hash_suffix)).hexdigest()
 
-    def _get_hsh_obj_path(self, hsh):
-        hsh_num = int(hsh[-1], 16)
+    def get_hsh_obj_path(self, hsh):
+        hsh_num = int(hsh[-self.hash_cont_expo:], 16)
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
-    def _get_cdn_data(self, env, cdn_obj_path):
+    def get_cdn_data(self, env, cdn_obj_path):
         '''
         Returns HashData object by doing a GET to the obj in the .hash
         container.
@@ -115,6 +119,7 @@ class OriginBase(object):
         memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
         if memcache_client:
             cached_cdn_data = memcache_client.get(memcache_key)
+#TODO: something heer for when its actually 404- have HashData raise exc.
             if cached_cdn_data:
                 try:
                     return HashData.create_from_json(cached_cdn_data)
@@ -165,9 +170,9 @@ class AdminHandler(OriginBase):
         if not self.is_origin_admin(req):
             return HTTPForbidden(request=req)
         try:
-            vsn, account, container = utils.split_path(req.path, 1, 3, True)
+            vsn, account = utils.split_path(req.path, 2, 2)
         except ValueError:
-            return HTTPNotFound(request=req)
+            return HTTPBadRequest(request=req)
         if account == '.prep':
             path = '/v1/%s' % self.origin_account
             resp = make_pre_authed_request(req.environ, 'PUT',
@@ -176,7 +181,8 @@ class AdminHandler(OriginBase):
                 raise Exception(
                     'Could not create the main origin account: %s %s' %
                     (path, resp.status))
-            hash_conts = ['.hash_%d' % i for i in xrange(16)]
+            hash_conts = ['.hash_%d' % i
+                for i in xrange(16 ** self.hash_cont_expo)]
             for cont_name in hash_conts:
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(req.environ, 'PUT',
@@ -236,8 +242,8 @@ class CdnHandler(OriginBase):
         if not (hsh and object_name):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
-        cdn_obj_path = self._get_hsh_obj_path(hsh)
-        hash_data = self._get_cdn_data(env, cdn_obj_path)
+        cdn_obj_path = self.get_hsh_obj_path(hsh)
+        hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
             swift_path = '/v1/%s/%s/%s' % (hash_data.account,
@@ -272,6 +278,7 @@ class CdnHandler(OriginBase):
                         cdn_resp.headers[header] = header_val
 
                 cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
+                env['swift.source'] = 'SOS'
 
                 return cdn_resp
             self.logger.exception('Unexpected response from Swift: %s, %s' %
@@ -298,7 +305,7 @@ class OriginDbHandler(OriginBase):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
             'cdn_enabled': cdn_enabled, 'ttl': ttl, 'log_ret': logs_enabled}
 
-    def _parse_container_listing(self, account, listing_data, output_format,
+    def _parse_container_listing(self, account, listing_dict, output_format,
                                  only_cdn_enabled=False):
         '''
         :returns: For xml format: an XML str, json: a dict, otherwise container
@@ -306,7 +313,6 @@ class OriginDbHandler(OriginBase):
                   listing_data is false.
         :raises: InvalidContentType
         '''
-        listing_dict = listing_data
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
         hsh = self._hash_path(account, container)
@@ -348,6 +354,9 @@ class OriginDbHandler(OriginBase):
         try:
             account = req.path.split('/')[2]
         except IndexError:
+            return HTTPBadRequest('Invalid request. '
+                                  'URL format: /<api version>/<account>')
+        if not account:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
         #TODO: make sure to test with unicode container names
@@ -436,12 +445,12 @@ class OriginDbHandler(OriginBase):
         if not self.delete_enabled:
             return HTTPMethodNotAllowed(request=req)
         try:
-            version, account, container = utils.split_path(req.path, 1, 3)
+            vsn, account, container = utils.split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest('Invalid request. '
                 'URI format: /<api version>/<account>/<container>')
         hsh = self._hash_path(account, container)
-        cdn_obj_path = self._get_hsh_obj_path(hsh)
+        cdn_obj_path = self.get_hsh_obj_path(hsh)
         resp = make_pre_authed_request(env, 'DELETE',
                 cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
 
@@ -471,17 +480,19 @@ class OriginDbHandler(OriginBase):
         Handles HEAD requests into Origin database
         '''
         try:
-            vsn, account, container = utils.split_path(req.path, 1, 3, True)
+            vsn, account, container, _junk = utils.split_path(
+                req.path, 3, 4, True)
         except ValueError:
-            return HTTPNotFound()
+            return HTTPBadRequest()
         hsh = self._hash_path(account, container)
-        cdn_obj_path = self._get_hsh_obj_path(hsh)
-        hash_data = self._get_cdn_data(env, cdn_obj_path)
+        cdn_obj_path = self.get_hsh_obj_path(hsh)
+        hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
             headers = self._get_cdn_urls(hsh, 'HEAD')
             headers.update({'X-TTL': hash_data.ttl,
-                'X-Log-Retention': hash_data.logs_enabled.title(),
-                'X-CDN-Enabled': hash_data.cdn_enabled.title()})
+                'X-Log-Retention':
+                    hash_data.logs_enabled and 'True' or 'False',
+                'X-CDN-Enabled': hash_data.cdn_enabled and 'True' or 'False'})
             return HTTPNoContent(headers=headers)
         return HTTPNotFound(request=req)
 
@@ -490,13 +501,14 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         '''
         try:
-            vsn, account, container = utils.split_path(req.path, 1, 3, True)
-        except ValueError:
-            return HTTPNotFound()
+            vsn, account, container, _junk = utils.split_path(
+                req.path, 3, 4, True)
+        except ValueError, e:
+            return HTTPBadRequest()
         hsh = self._hash_path(account, container)
-        cdn_obj_path = self._get_hsh_obj_path(hsh)
-        ttl, cdn_enabled, logs_enabled = '295200', 'true', 'false'
-        hash_data = self._get_cdn_data(env, cdn_obj_path)
+        cdn_obj_path = self.get_hsh_obj_path(hsh)
+        ttl, cdn_enabled, logs_enabled = '295200', True, False
+        hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
             ttl = hash_data.ttl
             cdn_enabled = hash_data.cdn_enabled
@@ -513,11 +525,12 @@ class OriginDbHandler(OriginBase):
             # invalid TTLs if the enabled is true or being set to true
             return HTTPBadRequest(_('Invalid X-TTL, must be between %(min)s '
                 'and %(max)s') % {'min': self.min_ttl, 'max': self.max_ttl})
-        logs_enabled = req.headers.get('X-Log-Retention',
-            logs_enabled).lower() in TRUE_VALUES and 'true' or 'false'
-        cdn_enabled = req.headers.get('X-CDN-Enabled',
-            cdn_enabled).lower() in TRUE_VALUES and 'true' or 'false'
-
+        if 'X-Log-Retention' in req.headers:
+            logs_enabled = req.headers.get('X-Log-Retention').lower() in \
+                TRUE_VALUES
+        if 'X-CDN-Enabled' in req.headers:
+            cdn_enabled = req.headers.get('X-CDN-Enabled').lower() in \
+                TRUE_VALUES
         new_hash_data = HashData(account, container, ttl, cdn_enabled,
                                  logs_enabled)
         cdn_obj_data = new_hash_data.get_json_str()
@@ -531,7 +544,6 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not PUT .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
 
-        #TODO: when DELETE gets added- need to clear out the memcache data
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
             memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
