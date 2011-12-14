@@ -249,6 +249,8 @@ class CdnHandler(OriginBase):
             swift_path = '/v1/%s/%s/%s' % (hash_data.account,
                                            hash_data.container, object_name)
             headers = self._getCdnHeaders(req)
+            env['swift.source'] = 'SOS'
+#TODO: this strips out the header stuff for the origina
             resp = make_pre_authed_request(env, req.method, swift_path,
                 headers=headers, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int == 304:
@@ -278,7 +280,6 @@ class CdnHandler(OriginBase):
                         cdn_resp.headers[header] = header_val
 
                 cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
-                env['swift.source'] = 'SOS'
 
                 return cdn_resp
             self.logger.exception('Unexpected response from Swift: %s, %s' %
@@ -656,7 +657,6 @@ class OriginServer(object):
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
         '''
-        #TODO: need to look at how the logs_enabled thing works :(
 #        if not self._valid_setup():
 #            return self.app(env, start_response)
         host = env['HTTP_HOST'].split(':')[0]
