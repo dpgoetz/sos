@@ -630,8 +630,8 @@ class OriginServer(object):
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [host for host in
             self.conf.get('origin_db_hosts', '').split(',') if host]
-        self.origin_cdn_hosts = [host for host in
-            self.conf.get('origin_cdn_hosts', '').split(',') if host]
+        self.origin_cdn_host_suffixes = [host for host in
+            self.conf.get('origin_cdn_host_suffixes', '').split(',') if host]
 
 #    def _valid_setup(self):
 #        return True
@@ -660,19 +660,14 @@ class OriginServer(object):
 #        if not self._valid_setup():
 #            return self.app(env, start_response)
         host = env['HTTP_HOST'].split(':')[0]
-        #TODO: is there something that I ned to do about the environ when
-        #I re route this request?
-        hostNoHash = ''
-        if host.find('.') != -1:
-            hostNoHash = host.split('.', 1)[1]
-
         try:
             handler = None
             if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf)
-            if (host in self.origin_cdn_hosts or
-                hostNoHash in self.origin_cdn_hosts):
-                handler = CdnHandler(self.app, self.conf)
+            for cdn_host_suffix in self.origin_cdn_host_suffixes:
+                if host.endswith(cdn_host_suffix):
+                    handler = CdnHandler(self.app, self.conf)
+                    break
             if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf)
             if handler:
@@ -687,7 +682,6 @@ class OriginServer(object):
         except InvalidConfiguration, e:
             logger = get_logger(self.conf, log_route='origin_server')
             logger.exception(e)
-            #TODO: get better error message
             return HTTPInternalServerError(e)(env, start_response)
         return self.app(env, start_response)
 
