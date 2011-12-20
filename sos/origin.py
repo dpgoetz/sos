@@ -92,7 +92,7 @@ class OriginBase(object):
         self.conf = conf
         self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
-        self.hash_cont_expo = int(conf.get('hash_container_exponent', 3))
+        self.num_hash_cont= int(conf.get('number_hash_id_containers', 1000))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -104,7 +104,7 @@ class OriginBase(object):
                                   self.hash_suffix)).hexdigest()
 
     def get_hsh_obj_path(self, hsh):
-        hsh_num = int(hsh[-self.hash_cont_expo:], 16)
+        hsh_num = int(hsh, 16) % self.num_hash_cont
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
     def get_cdn_data(self, env, cdn_obj_path):
@@ -181,9 +181,8 @@ class AdminHandler(OriginBase):
                 raise Exception(
                     'Could not create the main origin account: %s %s' %
                     (path, resp.status))
-            hash_conts = ['.hash_%d' % i
-                for i in xrange(16 ** self.hash_cont_expo)]
-            for cont_name in hash_conts:
+            for i in xrange(self.num_hash_cont):
+                cont_name = '.hash_%d' % i
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(req.environ, 'PUT',
                     path, agent='SwiftOrigin').get_response(self.app)
@@ -435,7 +434,7 @@ class OriginDbHandler(OriginBase):
             raise InvalidConfiguration('Could not find format for: %s, %s: %s'
                 % (request_type, request_format_tag, self.conf))
 
-        url_vars = {'hash': hsh, 'hash_mod': int(hsh[-2:], 16) % 100}
+        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % 100}
         cdn_urls = {}
         for key, url in format_section.items():
             cdn_urls[key] = (url % url_vars).rstrip('/')
