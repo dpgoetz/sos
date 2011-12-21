@@ -631,6 +631,9 @@ class OriginServer(object):
             self.conf.get('origin_db_hosts', '').split(',') if host]
         self.origin_cdn_host_suffixes = [host for host in
             self.conf.get('origin_cdn_host_suffixes', '').split(',') if host]
+        if not self.origin_cdn_host_suffixes:
+            raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
+
 
 #    def _valid_setup(self):
 #        return True

@@ -35,11 +35,11 @@ class FakeConf(object):
         else:
             self.data = '''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_account = .origin
 hash_path_suffix = testing
-hash_container_exponent = 1
+number_hash_id_containers = 100
 [outgoing_url_format]
 # the entries in this section "key = value" determines the blah blah...
 X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
@@ -186,14 +186,14 @@ class TestOrigin(unittest.TestCase):
     def test_admin_setup(self):
         # PUTs for account and 16 .hash's
         self.test_origin.app = FakeApp(iter(
-           [('204 No Content', {}, '') for i in xrange(18)]))
+           [('204 No Content', {}, '') for i in xrange(102)]))
         resp = Request.blank('/origin/.prep',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Origin-Admin-User': '.origin_admin',
                      'X-Origin-Admin-Key': 'unittest'}).get_response(
                      self.test_origin)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(self.test_origin.app.calls, 17)
+        self.assertEquals(self.test_origin.app.calls, 101)
 
         self.test_origin.app = FakeApp(iter(
            [('404 Not Found', {}, '')]))
@@ -212,7 +212,8 @@ class TestOrigin(unittest.TestCase):
         self.assertRaises(Exception, req.get_response, self.test_origin)
 
     def test_origin_db_valid_setup(self):
-        fake_conf = FakeConf(data=['[sos]'])
+        fake_conf = FakeConf(data=['[sos]',
+            'origin_cdn_host_suffixes = origin_cdn.com'])
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})(FakeApp())
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -221,7 +222,7 @@ class TestOrigin(unittest.TestCase):
 
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -411,8 +412,8 @@ max_cdn_file_size = 0
     def test_origin_db_delete_disabled(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
 origin_db_hosts = origin_db.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_account = .origin
 max_cdn_file_size = 0
 hash_path_suffix = testing
@@ -429,7 +430,7 @@ delete_enabled = false
     def test_origin_db_delete_enabled(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -455,7 +456,7 @@ delete_enabled = true
             utils.cache_from_env = mock_memcache
             fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -480,7 +481,7 @@ delete_enabled = true
     def test_origin_db_delete_bad_request(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -505,7 +506,7 @@ delete_enabled = true
     def test_origin_db_delete_bad_request_second(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -659,7 +660,7 @@ delete_enabled = true
     def test_origin_db_fail_bad_config(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -830,7 +831,7 @@ hash_path_suffix = testing
 
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
@@ -852,7 +853,7 @@ regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>
 
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
-origin_cdn_hosts = origin_cdn.com
+origin_cdn_host_suffixes = origin_cdn.com
 origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
