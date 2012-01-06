@@ -24,6 +24,7 @@ from swift.common import utils
 from swift.common.utils import get_logger, get_param, TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
+from urllib import unquote, quote
 try:
     import simplejson as json
 except ImportError:
@@ -202,6 +203,9 @@ class CdnHandler(OriginBase):
                                               10 * 1024 ** 3))
         if not self._valid_setup(conf):
             raise InvalidConfiguration('Invalid config for CdnHandler')
+        #TODO: need to add a blacklisted container hash thing.  with that and
+        # the edge verification thing (which should be in rackswift) it will
+        # be a lot more secure.
         self.cdn_regexes = []
         for key, val in conf['incoming_url_regex'].items():
             regex = re.compile(val)
@@ -298,7 +302,7 @@ class OriginDbHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_db')
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
-        self.delete_enabled = self.conf.get('delete_enabled', 'f').lower() in \
+        self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
@@ -643,6 +647,7 @@ class OriginServer(object):
 #            except Exception:
 #                pass
 #        return valid_setup
+
 
     def __call__(self, env, start_response):
         '''

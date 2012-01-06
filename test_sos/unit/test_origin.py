@@ -401,14 +401,6 @@ max_cdn_file_size = 0
         self.assertEquals(len(data), 1)
         self.assertEquals(resp.status_int, 200)
 
-    def test_origin_db_delete(self):
-        self.test_origin.app = FakeApp(iter([]))
-        req = Request.blank(
-            'http://origin_db.com:8080/v1/acc/cont',
-            environ={'REQUEST_METHOD': 'DELETE'})
-        resp = req.get_response(self.test_origin)
-        self.assertEquals(resp.status_int, 405)
-
     def test_origin_db_delete_disabled(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
