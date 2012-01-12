@@ -601,7 +601,6 @@ delete_enabled = true
                 'cdn_enabled': False}))
             def check_set(key, value, serialize=True, timeout=0):
                 data = json.loads(value)
-                print data
                 if data['ttl'] != 5555:
                     raise Exception('Memcache not working')
                 if data['cdn_enabled'] != True:
