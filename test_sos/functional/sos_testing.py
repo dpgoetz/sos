@@ -1,5 +1,4 @@
-# This was taken directly out of swift
-# TODO: put this in swift's lib so this doesn't have to dup it.
+# This was basically taken directly out of swift's func tests
 import errno
 import os
 import socket

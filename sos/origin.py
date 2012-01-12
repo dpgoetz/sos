@@ -49,9 +49,9 @@ class InvalidConfiguration(Exception):
 
 
 class HashData(object):
-    '''
+    """
     object to keep track on json data files
-    '''
+    """
 
     def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
         self.account = account
@@ -71,56 +71,55 @@ class HashData(object):
 
     @classmethod
     def create_from_json(cls, json_str):
-        '''
+        """
         :returns HashData object init from str passed in
         :raises ValueError if there's a problem with json
-        '''
+        """
         try:
             data = json.loads(json_str)
             return HashData(data['account'], data['container'], data['ttl'],
                             data['cdn_enabled'], data['logs_enabled'])
-        except (KeyError, ValueError), e:
+        except (KeyError, ValueError, TypeError), e:
             raise ValueError("Problem loading json: %s" % e)
 
 
 class OriginBase(object):
-    '''
+    """
     Base class for Origin Server
-    '''
+    """
 
     def __init__(self, app, conf):
         self.app = app
         self.conf = conf
         self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
-        self.num_hash_cont= int(conf.get('number_hash_id_containers', 1000))
+        self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
-
-#    def _valid_setup(self):
-#        #TODO: this later
 
     def _hash_path(self, account, container):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
                                   self.hash_suffix)).hexdigest()
 
     def get_hsh_obj_path(self, hsh):
+        """
+        Given a hash will return the path to where the cdn metadata is.
+        :raises: ValueError on invalid hsh
+        """
         hsh_num = int(hsh, 16) % self.num_hash_cont
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
     def get_cdn_data(self, env, cdn_obj_path):
-        '''
+        """
         Returns HashData object by doing a GET to the obj in the .hash
         container.
-        '''
-        # get defaults
-        #TODO: I think I should cache this in memcache later
-        # if i do this then i'll have to clear it on PUTs / POSTs
+        """
         memcache_client = utils.cache_from_env(env)
         memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
         if memcache_client:
             cached_cdn_data = memcache_client.get(memcache_key)
-#TODO: something heer for when its actually 404- have HashData raise exc.
+            if cached_cdn_data == '404':
+                return None
             if cached_cdn_data:
                 try:
                     return HashData.create_from_json(cached_cdn_data)
@@ -137,7 +136,13 @@ class OriginBase(object):
 
                 return HashData.create_from_json(resp.body)
             except ValueError:
-                pass # TODO: ignore json errors in the data files, ok right?
+                logger = get_logger(self.conf, log_route='origin_server')
+                logger.warn('Invalid HashData json: %s' % cdn_obj_path)
+        if resp.status_int == 404:
+            if memcache_client:
+                memcache_client.set(memcache_key, '404',
+                    serialize=False, timeout=MEMCACHE_TIMEOUT)
+
         return None
 
 
@@ -203,9 +208,6 @@ class CdnHandler(OriginBase):
                                               10 * 1024 ** 3))
         if not self._valid_setup(conf):
             raise InvalidConfiguration('Invalid config for CdnHandler')
-        #TODO: need to add a blacklisted container hash thing.  with that and
-        # the edge verification thing (which should be in rackswift) it will
-        # be a lot more secure.
         self.cdn_regexes = []
         for key, val in conf['incoming_url_regex'].items():
             regex = re.compile(val)
@@ -220,7 +222,7 @@ class CdnHandler(OriginBase):
                 'Cache-Control': 'max-age:%d, public' % ttl}
 
     def _getCdnHeaders(self, req):
-        headers = {}
+        headers = {'X-Web-Mode': 'True', 'User-Agent': 'SOS Origin'}
         for header in ['If-Modified-Since', 'If-Match', 'Range', 'If-Range']:
             if header in req.headers:
                 headers[header] = req.headers[header]
@@ -245,7 +247,11 @@ class CdnHandler(OriginBase):
         if not (hsh and object_name):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
-        cdn_obj_path = self.get_hsh_obj_path(hsh)
+        try:
+            cdn_obj_path = self.get_hsh_obj_path(hsh)
+        except ValueError:
+            headers = self._getCacheHeaders(CACHE_BAD_URL)
+            return HTTPBadRequest(request=req, headers=headers)
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
@@ -253,7 +259,6 @@ class CdnHandler(OriginBase):
                                            hash_data.container, object_name)
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
-#TODO: this strips out the header stuff for the origina
             resp = make_pre_authed_request(env, req.method, swift_path,
                 headers=headers, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int == 304:
@@ -266,7 +271,6 @@ class CdnHandler(OriginBase):
                 return HTTPRequestRangeNotSatisfiable(request=req,
                     headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int in (200, 206):
-                #TODO: not doing the check for content-length == None ok?
                 if resp.content_length > self.max_cdn_file_size:
                     return HTTPBadRequest(request=req,
                         headers=self._getCacheHeaders(CACHE_404))
@@ -292,9 +296,9 @@ class CdnHandler(OriginBase):
 
 
 class OriginDbHandler(OriginBase):
-    '''
+    """
     Origin server for public containers
-    '''
+    """
 
     def __init__(self, app, conf):
         OriginBase.__init__(self, app, conf)
@@ -311,12 +315,12 @@ class OriginDbHandler(OriginBase):
 
     def _parse_container_listing(self, account, listing_dict, output_format,
                                  only_cdn_enabled=False):
-        '''
+        """
         :returns: For xml format: an XML str, json: a dict, otherwise container
                   name. Returns None if only_cdn_enabled is specified and
                   listing_data is false.
         :raises: InvalidContentType
-        '''
+        """
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
         hsh = self._hash_path(account, container)
@@ -344,17 +348,16 @@ class OriginDbHandler(OriginBase):
         if output_format == 'xml':
             xml_data = '\n'.join(['<%s>%s</%s>' % (tag, val, tag)
                                   for tag, val in output_dict.items()])
-            return '''  <container>
+            return """  <container>
             %s
-  </container>''' % xml_data
+  </container>""" % xml_data
         return output_dict
 
     def origin_db_get(self, env, req):
-        '''
+        """
         Handles GETs to the Origin database
         The only part of the path this pays attention to is the account.
-        '''
-        #TODO: this does not return transfer-encoding: chunked
+        """
         try:
             account = req.path.split('/')[2]
         except IndexError:
@@ -363,7 +366,6 @@ class OriginDbHandler(OriginBase):
         if not account:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
-        #TODO: make sure to test with unicode container names
         marker = get_param(req, 'marker', default='')
         list_format = get_param(req, 'format')
         if list_format:
@@ -382,11 +384,8 @@ class OriginDbHandler(OriginBase):
         resp = make_pre_authed_request(env, 'GET',
             listing_path, agent='SwiftOrigin').get_response(self.app)
         resp_headers = {}
-        # {'Transfer-Encoding': 'chunked'}
-        #TODO is this right? was chunked in old one
         if resp.status_int // 100 == 2:
             cont_listing = json.loads(resp.body)
-            # TODO: is it ok to load the whole thing? do i have a choice?
             listing_formatted = []
             for listing_dict in cont_listing:
                 if limit is None or len(listing_formatted) < limit:
@@ -418,14 +417,12 @@ class OriginDbHandler(OriginBase):
             return HTTPNotFound(request=req)
 
     def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
-        '''
+        """
         Returns a dict of the outgoing urls for a HEAD or GET req.
         :param request_format_tag: the tag matching the section in the conf
             file that will be used to format the request
-        '''
+        """
         format_section = None
-        #TODO: add tests for each of these cases
-        #TODO: functional tests for all the different requests :(
         section_names = ['outgoing_url_format_%s_%s' % (request_type.lower(),
                                                         request_format_tag),
                          'outgoing_url_format_%s' % request_type.lower(),
@@ -445,7 +442,7 @@ class OriginDbHandler(OriginBase):
         return cdn_urls
 
     def origin_db_delete(self, env, req):
-        ''' Handles DELETEs in the Origin database '''
+        """ Handles DELETEs in the Origin database """
         if not self.delete_enabled:
             return HTTPMethodNotAllowed(request=req)
         try:
@@ -480,9 +477,9 @@ class OriginDbHandler(OriginBase):
         return HTTPNoContent(request=req)
 
     def origin_db_head(self, env, req):
-        '''
+        """
         Handles HEAD requests into Origin database
-        '''
+        """
         try:
             vsn, account, container, _junk = utils.split_path(
                 req.path, 3, 4, True)
@@ -501,9 +498,9 @@ class OriginDbHandler(OriginBase):
         return HTTPNotFound(request=req)
 
     def origin_db_puts_posts(self, env, req):
-        '''
+        """
         Handles PUTs and POSTs into Origin database
-        '''
+        """
         try:
             vsn, account, container, _junk = utils.split_path(
                 req.path, 3, 4, True)
@@ -525,8 +522,6 @@ class OriginDbHandler(OriginBase):
         except ValueError:
             return HTTPBadRequest(_('Invalid X-TTL, must be integer'))
         if ttl < self.min_ttl or ttl > self.max_ttl:
-            # TODO: this isn't exactly whats currently there. It only errors on
-            # invalid TTLs if the enabled is true or being set to true
             return HTTPBadRequest(_('Invalid X-TTL, must be between %(min)s '
                 'and %(max)s') % {'min': self.min_ttl, 'max': self.max_ttl})
         if 'X-Log-Retention' in req.headers:
@@ -588,10 +583,10 @@ class OriginDbHandler(OriginBase):
                                headers=cdn_url_headers)
 
     def handle_request(self, env, req):
-        '''
+        """
         This handles requests from a user to activate cdn access for their
         containers, list them, etc.
-        '''
+        """
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -601,7 +596,6 @@ class OriginDbHandler(OriginBase):
                 return self.origin_db_puts_posts(env, req)
             except OriginDbFailure, e:
                 self.logger.exception(e)
-                #TODO: get better error message
                 return HTTPInternalServerError('Problem saving CDN data')
         if req.method == 'GET':
             return self.origin_db_get(env, req)
@@ -638,19 +632,8 @@ class OriginServer(object):
         if not self.origin_cdn_host_suffixes:
             raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
 
-
-#    def _valid_setup(self):
-#        return True
-#        if not valid_setup:
-#            try:
-#                self.logger.critical(_('Invalid origin conf file!'))
-#            except Exception:
-#                pass
-#        return valid_setup
-
-
     def __call__(self, env, start_response):
-        '''
+        """
         Accepts a standard WSGI application call.
         There are 2 types of requests that this middleware will affect.
         1. Requests to CDN 'database' that will enable, list, etc. containers
@@ -663,9 +646,7 @@ class OriginServer(object):
 
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
-        '''
-#        if not self._valid_setup():
-#            return self.app(env, start_response)
+        """
         host = env['HTTP_HOST'].split(':')[0]
         try:
             handler = None
@@ -680,8 +661,6 @@ class OriginServer(object):
             if handler:
                 req = Request(env)
                 if not check_utf8(req.path_info):
-                    #TODO: the current origin server accepts ISO-8859-1 object
-                    # names and encodes it into unicode.  do I have to do this?
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8')(env, start_response)
 

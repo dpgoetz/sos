@@ -1,14 +1,18 @@
 #!/usr/bin/python
-
-import json
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import unittest
 from nose import SkipTest
 from uuid import uuid4
+import datetime
 from webob import Response
 from swift.common.utils import urlparse
 
 from sos_testing import check_response, retry, skip, swift_test_user, \
     swift_test_auth, sos_conf
+
 
 class TestOrigin(unittest.TestCase):
 
@@ -24,42 +28,50 @@ class TestOrigin(unittest.TestCase):
     def setUp(self):
         if skip:
             raise SkipTest
-        self.cont_name = 'cont' # uuid4().hex
-        self.obj_name = 'obj' #uuid4().hex
         self.db_host = sos_conf['sos'].get('origin_db_hosts')
         self.origin_host = sos_conf['sos'].get(
                            'origin_cdn_host_suffixes').split(',')[0]
         self.assert_(self.db_host)
         self.cdn_url_dict = sos_conf['outgoing_url_format']
         self.use_ssl = swift_test_auth.startswith('https')
+        self.conts_to_delete = []
+        self.swift_objs_to_delete = []
 
     def tearDown(self):
         if skip:
             raise SkipTest
 
-        def get_sos(url, token, parsed, conn):
-            conn.request('GET', parsed.path + '?format=json',
-                         '', headers=self._db_headers({'X-Auth-Token': token}))
-            return check_response(conn)
-        def delete_sos(url, token, parsed, conn, obj):
+        def delete_sos(url, token, parsed, conn, cont):
             conn.request('DELETE',
-                         '/'.join([parsed.path, self.cont_name]), '',
+                         '/'.join([parsed.path, cont]), '',
                          headers=self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
-        while 'Delete SOS stuff':
-            resp = retry(get_sos)
-            body = resp.read()
-            self.assert_(resp.status // 100 == 2, resp.status)
-            objs = json.loads(body)
-            objs = [obj['name'] for obj in objs]
-            if not objs:
-                break
-            for obj in objs:
-                resp = retry(delete_sos, obj)
+        def delete_swift(url, token, parsed, conn, cont):
+            conn.request('DELETE',
+                '/'.join([parsed.path, cont]), '',
+                headers={'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete_swift_obj(url, token, parsed, conn, cont, obj):
+            conn.request('DELETE',
+                '/'.join([parsed.path, cont, obj]), '',
+                headers={'X-Auth-Token': token})
+            return check_response(conn)
+
+        for cont, obj in self.swift_objs_to_delete:
+            resp = retry(delete_swift_obj, cont, obj)
+            resp.read()
+            self.assertEquals(resp.status, 204)
+        if self.swift_objs_to_delete:
+            for cont in self.conts_to_delete:
+                resp = retry(delete_swift, cont)
                 resp.read()
                 self.assertEquals(resp.status, 204)
-            break
+        for cont in self.conts_to_delete:
+            resp = retry(delete_sos, cont)
+            resp.read()
+            self.assertEquals(resp.status, 204)
 
     def _get_header(self, check_key, headers):
         passed = False
@@ -69,21 +81,25 @@ class TestOrigin(unittest.TestCase):
         return None
 
     def test_cdn_enable_container(self):
-        return
-        def put_sos(url, token, parsed, conn):
+
+        def put_sos(url, token, parsed, conn, cont):
             conn.request('PUT',
-                parsed.path + '/%s' % self.cont_name, '',
+                parsed.path + '/%s' % cont, '',
                 self._db_headers({'X-Auth-Token': token, 'X-TTL': 123456}))
             return check_response(conn)
-        def head_sos(url, token, parsed, conn):
+
+        def head_sos(url, token, parsed, conn, cont):
             conn.request('HEAD',
-                parsed.path + '/%s' % self.cont_name, '',
+                parsed.path + '/%s' % cont, '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
-        resp = retry(put_sos)
+
+        cont = uuid4().hex
+        self.conts_to_delete.append(cont)
+        resp = retry(put_sos, cont)
         resp.read()
         self.assertEquals(resp.status, 201)
-        resp = retry(head_sos)
+        resp = retry(head_sos, cont)
         resp.read()
         self.assertEquals(resp.status, 204)
         self.assertEquals(self._get_header('x-ttl', resp.getheaders()),
@@ -92,54 +108,116 @@ class TestOrigin(unittest.TestCase):
                           'True')
 
     def test_origin_get(self):
-        def put_swift(url, token, parsed, conn):
+
+        def put_swift(url, token, parsed, conn, cont, obj):
             conn.request('PUT',
-                parsed.path + '/%s' % self.cont_name, '',
+                parsed.path + '/%s' % cont, '',
                 {'X-Auth-Token': token})
             resp = check_response(conn)
             resp.read()
             conn.request('PUT',
-                parsed.path + '/%s/%s' % (self.cont_name, self.obj_name),
+                parsed.path + '/%s/%s' % (cont, obj),
                 'testbody', {'X-Auth-Token': token, 'Content-Length': 8})
             return check_response(conn)
-        def put_sos(url, token, parsed, conn):
+
+        def put_sos(url, token, parsed, conn, cont):
             conn.request('PUT',
-                parsed.path + '/' + self.cont_name, '',
-                self._db_headers({'X-Auth-Token': token, 'X-TTL': 123456}))
+                parsed.path + '/' + cont, '',
+                self._db_headers({'X-Auth-Token': token,
+                                  'X-TTL': 60 * 60 * 24}))
             return check_response(conn)
-        def head_swift(url, token, parsed, conn):
+
+        def head_swift(url, token, parsed, conn, cont, obj):
             conn.request('HEAD',
-                parsed.path + '/%s/%s' % (self.cont_name, self.obj_name), '',
+                parsed.path + '/%s/%s' % (cont, obj), '',
                 {'X-Auth-Token': token})
             return check_response(conn)
-        def head_sos(url, token, parsed, conn):
+
+        def head_sos(url, token, parsed, conn, cont):
             conn.request('HEAD',
-                parsed.path + '/' + self.cont_name, '',
+                parsed.path + '/' + cont, '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
-        def origin_get(url, token, parsed, conn, cdn_url):
+
+        def origin_get(url, token, parsed, conn, cdn_url, obj, headers={}):
             cdn_parsed = urlparse(cdn_url)
             conn.request('GET',
-                cdn_parsed.path + '/' + self.obj_name, '',
-                self._origin_headers({}, cdn_url))
+                cdn_parsed.path + '/' + obj, '',
+                self._origin_headers(headers, cdn_url))
             return check_response(conn)
-        resp = retry(put_sos)
+
+        cont = uuid4().hex
+        obj = uuid4().hex
+        self.conts_to_delete.append(cont)
+        self.swift_objs_to_delete.append((cont, obj))
+        resp = retry(put_sos, cont)
         resp.read()
-        resp = retry(put_swift)
+        resp = retry(put_swift, cont, obj)
         resp.read()
-        head_resp = retry(head_sos)
+        head_resp = retry(head_sos, cont)
         head_resp.read()
         self.assertEquals(head_resp.status, 204)
-        sw_head_resp = retry(head_swift)
+        sw_head_resp = retry(head_swift, cont, obj)
         sw_head_resp.read()
         self.assertEquals(sw_head_resp.status // 100, 2)
         for key in self.cdn_url_dict:
             if 'ssl' in key.lower() != self.use_ssl:
                 continue
             cdn_url = self._get_header(key, head_resp.getheaders())
-            resp = retry(origin_get, cdn_url=cdn_url)
-            r = resp.read()
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj)
+            body = resp.read()
+            self.assertEquals(resp.status // 100, 2)
+            self.assertEquals('testbody', body)
+            date_str_added = self._get_header('date', resp.getheaders())
+            date_added = datetime.datetime.strptime(date_str_added,
+                "%a, %d %b %Y %H:%M:%S GMT")
+            exp_expires = date_added + datetime.timedelta(1)
+            self.assertEquals(self._get_header('Expires', resp.getheaders()),
+                datetime.datetime.strftime(exp_expires,
+                                           "%a, %d %b %Y %H:%M:%S GMT"))
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
+                         headers={'Range': 'bytes=2-4'})
+            body = resp.read()
+            self.assertEquals(resp.status // 100, 2)
+            self.assertEquals('stb', body)
 
+    def test_db_listing(self):
+
+        def put_sos(url, token, parsed, conn, cont):
+            conn.request('PUT',
+                parsed.path + '/' + cont, '',
+                self._db_headers({'X-Auth-Token': token,
+                                  'X-TTL': 60 * 60 * 24}))
+            return check_response(conn)
+
+        def get_sos(url, token, parsed, conn, output_format):
+            conn.request('GET',
+                parsed.path + '?format=%s' % output_format, '',
+                self._db_headers({'X-Auth-Token': token}))
+            return check_response(conn)
+
+        conts = [uuid4().hex for i in xrange(10)]
+        for cont in conts:
+            self.conts_to_delete.append(cont)
+            resp = retry(put_sos, cont)
+            resp.read()
+            self.assertEquals(resp.status, 201)
+
+        resp = retry(get_sos, '')
+        body = resp.read()
+        for cont in conts:
+            self.assert_(cont in body)
+
+        resp = retry(get_sos, 'json')
+        body = resp.read()
+        data = json.loads(body)
+        resp_conts = [d['name'] for d in data]
+        self.assertEquals(set(resp_conts), set(conts))
+
+        resp = retry(get_sos, 'xml')
+        body = resp.read()
+        for cont in conts:
+            self.assert_('<name>%s</name>' % cont in body)
 
 if __name__ == '__main__':
     unittest.main()

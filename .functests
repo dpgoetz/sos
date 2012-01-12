@@ -1,0 +1,3 @@
+#!/bin/bash
+
+nosetests test_sos/functional --exe
