@@ -206,15 +206,12 @@ class CdnHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_cdn')
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
                                               10 * 1024 ** 3))
-        if not self._valid_setup(conf):
+        if not bool(conf.get('incoming_url_regex')):
             raise InvalidConfiguration('Invalid config for CdnHandler')
         self.cdn_regexes = []
         for key, val in conf['incoming_url_regex'].items():
             regex = re.compile(val)
             self.cdn_regexes.append(regex)
-
-    def _valid_setup(self, conf):
-        return bool(conf.get('incoming_url_regex'))
 
     def _getCacheHeaders(self, ttl):
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
