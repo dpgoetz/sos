@@ -58,6 +58,3 @@ X-CDN-MYSERVICE-URI = http://mine.origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
 # Used for GET listings in XML
 [outgoing_url_format_get_json]
 # Used for GET listings in JSON
-
-
-
