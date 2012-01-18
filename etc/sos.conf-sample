@@ -20,15 +20,21 @@ hash_path_suffix = sos_suffix
 # will split the cdn hashes between many containers to distribute the load.
 # This number CAN NEVER CHANGE after initial prep.
 #number_hash_id_containers = 100
+# Adding the following will add an extra hash to the "hash" part of the
+# outgoing url in the form token-hash where token is the first 30 characters
+# of the hmac-sha1 of the hostname of the url. The hmac will be evaluated with
+# secret given. We only take the first 30 chars because of the 63 char limit
+# to hostname labels. This is optional. DO NOT LOSE this secret.
+# hmac_signed_url_secret = somesecretkey
 
 [incoming_url_regex]
 # These regular expressions will be used to parse to cdn request urls to get
-# the cdn_hash and obj_name- all that is needed to get an object.  Be sure that
+# the hash and obj_name- all that is needed to get an object.  Be sure that
 # all outgoing url formats below are matched by one of the regexes (not
 # including the object_name of course).
 # The keys are not used- they just need to be unique
-regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>(.+))?$
-regex_1 = ^https://ssl.origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
+regex_0 = ^http://(?P<hash>\w+)\.r\d+\.origin_cdn\.com\/?(?P<object_name>(.+))?$
+regex_1 = ^https://(?P<hash>\w+)\.ssl.origin_cdn\.com\/?(?P<object_name>(.+))?$
 
 # The format of the data returned from HEAD and GET requests to the origin
 # server is highly configurable.
@@ -44,9 +50,9 @@ regex_1 = ^https://ssl.origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(
 [outgoing_url_format]
 # This is the catch-all for outgoing requests.  This will be used if nothing
 # more specific matches
-X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
-X-CDN-SSL-URI = https://ssl.origin_cdn.com/h%(hash)s
-X-CDN-MYSERVICE-URI = http://mine.origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
+X-CDN-URI = http://%(hash)s.r%(hash_mod)d.origin_cdn.com:8080
+X-CDN-SSL-URI = https://%(hash)s.ssl.origin_cdn.com
+X-CDN-MYSERVICE-URI = http://%(hash)s.r%(hash_mod).mine.origin_cdn.com:8080
 
 # for more specific control you can set one or more of the following:
 [outgoing_url_format_head]

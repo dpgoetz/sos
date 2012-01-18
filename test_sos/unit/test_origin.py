@@ -42,12 +42,12 @@ hash_path_suffix = testing
 number_hash_id_containers = 100
 [outgoing_url_format]
 # the entries in this section "key = value" determines the blah blah...
-X-CDN-URI = http://origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
-X-CDN-SSL-URI = https://ssl.origin_cdn.com/h%(hash)s
-X-CDN-STREAMING-URI = http://stream.origin_cdn.com:8080/h%(hash)s/r%(hash_mod)d
+X-CDN-URI = http://%(hash)s\.r%(hash_mod)d\.origin_cdn.com:8080
+X-CDN-SSL-URI = https://%(hash)s\.ssl.origin_cdn.com
+X-CDN-STREAMING-URI = http://%(hash)s\.r%(hash_mod)d\.stream.origin_cdn.com:8080
 [incoming_url_regex]
-regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
-regex_1 = ^https://ssl.origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/?(?P<object_name>(.+))?$
+regex_0 = ^http://(?P<hash>\w+)\.r\d+\.origin_cdn\.com[^\/]*\/?(?P<object_name>(.+))?$
+regex_1 = ^https://(?P<hash>\w+)\.ssl.origin_cdn\.com[^\/]*\/?(?P<object_name>(.+))?$
 '''.split('\n')
 
     def readline(self):
@@ -726,7 +726,7 @@ hash_path_suffix = testing
                 self.test_origin)
             self.assertEquals(resp.status_int, 405)
 
-        resp = Request.blank('http://origin_cdn.com:8080/1234/obj1.jpg',
+        resp = Request.blank('http://1234.r34.origin_cdn.com:8080',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd'}).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 404)
@@ -737,7 +737,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('304 No Content', {}, '')])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r34.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
@@ -747,7 +747,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('404 No Content', {}, '')])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r34.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
@@ -757,7 +757,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('416 No Content', {}, '')])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r34.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
@@ -777,7 +777,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('304 No Content', {}, '', check_urls)])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 304)
@@ -785,7 +785,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('304 No Content', {}, '', check_urls)])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/1234/obj1.jpg',
+        req = Request.blank('http://r3.origin_cdn.com:8080/nohash/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 404)
@@ -798,7 +798,7 @@ hash_path_suffix = testing
             ('200 Ok', {}, 'Test obj body.',
                 lambda req: False if req.headers['if-modified-since'] ==
                 '2000-01-01' else 'Headers not kept')])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             headers={'if-modified-since': '2000-01-01'},
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cdn_hash': 'abcd',
@@ -813,7 +813,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('500', {}, 'Failure.')])) #call to get obj
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
@@ -835,7 +835,7 @@ regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>
         test_origin = test_origin(FakeApp(iter([
                 ('204 No Content', {}, prev_data), # call to _get_cdn_data
                 ('200 Ok', {'Content-Length': 14}, 'Test obj body.')])))
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
@@ -853,7 +853,7 @@ hash_path_suffix = testing
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})
         test_origin = test_origin(FakeApp(iter([ ])))
-        req = Request.blank('http://origin_cdn.com:8080/h1234/obj1.jpg',
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(test_origin)
         self.assertEquals(resp.status_int, 500)

@@ -18,13 +18,16 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized, HTTPNoContent, HTTPAccepted, HTTPCreated, \
     HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
     HTTPInternalServerError, HTTPPreconditionFailed
-from hashlib import md5
+from urllib import unquote, quote
+from urlparse import urlparse
+from hashlib import md5, sha1
+import hmac
 import re
+
 from swift.common import utils
 from swift.common.utils import get_logger, get_param, TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
-from urllib import unquote, quote
 try:
     import simplejson as json
 except ImportError:
@@ -237,13 +240,15 @@ class CdnHandler(OriginBase):
                 match_obj = regex.match(req.url)
                 if match_obj:
                     match_dict = match_obj.groupdict()
-                    hsh = match_dict.get('cdn_hash')
+                    hsh = match_dict.get('hash')
                     object_name = match_dict.get('object_name')
                     break
 
         if not (hsh and object_name):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
+        if hsh.find('-') >= 0:
+            hsh = hsh.split('-', 1)[1]
         try:
             cdn_obj_path = self.get_hsh_obj_path(hsh)
         except ValueError:
@@ -436,6 +441,14 @@ class OriginDbHandler(OriginBase):
         cdn_urls = {}
         for key, url in format_section.items():
             cdn_urls[key] = (url % url_vars).rstrip('/')
+        if self.conf.get('hmac_signed_url_secret'):
+            for key, url in cdn_urls.iteritems():
+                parsed = urlparse(url)
+                token = hmac.new(key=self.conf.get('hmac_signed_url_secret'),
+                    msg=parsed.hostname, digestmod=sha1).hexdigest()
+                # only keep the first 30 chars of hash to keep label size <= 63
+                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme, token[:30],
+                                                parsed.hostname)
         return cdn_urls
 
     def origin_db_delete(self, env, req):
