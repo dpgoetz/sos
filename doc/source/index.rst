@@ -45,16 +45,17 @@ you do a HEAD request you will see the cdn url returned as a header.
 
 For example on a SAIO:
 Get/set token:
-``export TOKEN=AUTH_token``
+``export AUTH_TOKEN=[AUTH_token]``
+``export AUTH_USER=[AUTH_user]``
 
 Put container in swift:
-``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub -XPUT``
+``curl -i -H "X-Auth-Token: $AUTH_TOKEN" http://127.0.0.1:8080/v1/$AUTH_USER/pub -XPUT``
 
 Put object in container:
-``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub/file.html -XPUT -d '<html><b>It Works!!</b></html>'``
+``curl -i -H "X-Auth-Token: $AUTH_TOKEN" http://127.0.0.1:8080/v1/$AUTH_USER/pub/file.html -XPUT -d '<html><b>It Works!!</b></html>'``
 
 CDN enabled the container:
-``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub -XPUT -H 'Host: origin_db.com'``
+``curl -i -H "X-Auth-Token: $AUTH_TOKEN" http://127.0.0.1:8080/v1/$AUTH_USER/pub -XPUT -H 'Host: origin_db.com'``
 
 Make origin request:
 ``curl http://127.0.0.1:8080/file.html -H 'Host: c0cd095b4ec76c09a6549995abb62558.r56.origin_cdn.com'``
