@@ -47,6 +47,10 @@ class OriginDbFailure(Exception):
     pass
 
 
+class OriginDbNotFound(Exception):
+    pass
+
+
 class InvalidConfiguration(Exception):
     pass
 
@@ -310,40 +314,42 @@ class OriginDbHandler(OriginBase):
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
+        self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
             'cdn_enabled': cdn_enabled, 'ttl': ttl, 'log_ret': logs_enabled}
 
     def _parse_container_listing(self, account, listing_dict, output_format,
-                                 only_cdn_enabled=False):
+                                 only_cdn_enabled=None):
         """
+        :param only_cdn_enabled: should be a bool or None
         :returns: For xml format: an XML str, json: a dict, otherwise container
                   name. Returns None if only_cdn_enabled is specified and
-                  listing_data is false.
+                  listing_data does not match.
         :raises: InvalidContentType
         """
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
         hsh = self._hash_path(account, container)
-        if output_format not in ('json', 'xml'):
-            return container
-        if cdn_data.startswith('x-cdn/'):
-            try:
-                cdn_enabled, ttl, log_ret = cdn_data[len('x-cdn/'):].split('-')
-                cdn_enabled = cdn_enabled.lower() in TRUE_VALUES
-                log_ret = log_ret.lower() in TRUE_VALUES
-                ttl = int(ttl)
-            except ValueError:
-                raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
-                    (account, container, cdn_data))
-            cdn_url_dict = self._get_cdn_urls(hsh, 'GET',
-                                              request_format_tag=output_format)
-        else:
+        if not cdn_data.startswith('x-cdn/'):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
-        if only_cdn_enabled and not cdn_enabled:
-            return None
+        try:
+            cdn_enabled, ttl, log_ret = cdn_data[len('x-cdn/'):].split('-')
+            cdn_enabled = cdn_enabled.lower() in TRUE_VALUES
+            log_ret = log_ret.lower() in TRUE_VALUES
+            ttl = int(ttl)
+            if only_cdn_enabled is not None and \
+                only_cdn_enabled != cdn_enabled:
+                return None
+        except ValueError:
+            raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
+                (account, container, cdn_data))
+        if output_format not in ('json', 'xml'):
+            return container
+        cdn_url_dict = self._get_cdn_urls(hsh, 'GET',
+                                          request_format_tag=output_format)
         output_dict = {'name': container, 'cdn_enabled': cdn_enabled,
                        'ttl': ttl, 'log_retention': log_ret}
         output_dict.update(cdn_url_dict)
@@ -372,36 +378,52 @@ class OriginDbHandler(OriginBase):
         list_format = get_param(req, 'format')
         if list_format:
             list_format = list_format.lower()
-        enabled_only = get_param(req, 'enabled',
-                                 default='false').lower() in TRUE_VALUES
+        enabled_only = None
+        if get_param(req, 'enabled'):
+            enabled_only = get_param(req, 'enabled').lower() in TRUE_VALUES
         limit = get_param(req, 'limit')
         if limit:
             try:
                 limit = int(limit)
             except ValueError:
                 return HTTPBadRequest('Invalid limit, must be an integer')
-        listing_path = '/v1/%s/%s?format=json&marker=%s' % \
-                       (self.origin_account, account, marker)
-        # no limit in request because may have to filter on cdn_enabled
-        resp = make_pre_authed_request(env, 'GET',
-            listing_path, agent='SwiftOrigin').get_response(self.app)
-        resp_headers = {}
-        if resp.status_int // 100 == 2:
-            cont_listing = json.loads(resp.body)
+
+        def get_listings(marker):
+            listing_path = '/v1/%s/%s?format=json&marker=%s' % \
+                           (self.origin_account, account, marker)
+            # no limit in request because may have to filter on cdn_enabled
+            resp = make_pre_authed_request(env, 'GET',
+                listing_path, agent='SwiftOrigin').get_response(self.app)
+            resp_headers = {}
             listing_formatted = []
-            for listing_dict in cont_listing:
-                if limit is None or len(listing_formatted) < limit:
-                    try:
-                        formatted_data = self._parse_container_listing(
-                            account, listing_dict, list_format,
-                            only_cdn_enabled=enabled_only)
-                        if formatted_data:
-                            listing_formatted.append(formatted_data)
-                    except InvalidContentType, e:
-                        self.logger.exception(e)
-                        continue
-                else:
-                    break
+            if resp.status_int // 100 == 2:
+                cont_listing = json.loads(resp.body)
+                for listing_dict in cont_listing:
+                    if limit is None or len(listing_formatted) < limit:
+                        try:
+                            formatted_data = self._parse_container_listing(
+                                account, listing_dict, list_format,
+                                only_cdn_enabled=enabled_only)
+                            if formatted_data:
+                                listing_formatted.append(formatted_data)
+                        except InvalidContentType, e:
+                            self.logger.exception(e)
+                            continue
+                    else:
+                        break
+                if cont_listing and not listing_formatted:
+                    # there were rows returned but none matched enabled_only-
+                    # requery with new marker
+                    new_marker = cont_listing[-1]['name']
+                    return get_listings(new_marker)
+            elif resp.status_int == 404:
+                raise OriginDbNotFound()
+            else:
+                raise OriginDbFailure('Origin db listings failure')
+            return resp_headers, listing_formatted
+
+        try:
+            resp_headers, listing_formatted = get_listings(marker)
             if list_format == 'xml':
                 resp_headers['Content-Type'] = 'application/xml'
                 response_body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -415,7 +437,7 @@ class OriginDbHandler(OriginBase):
                 resp_headers['Content-Type'] = 'text/plain; charset=UTF-8'
                 response_body = '\n'.join(listing_formatted)
             return Response(body=response_body, headers=resp_headers)
-        else:
+        except OriginDbNotFound:
             return HTTPNotFound(request=req)
 
     def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
@@ -441,10 +463,10 @@ class OriginDbHandler(OriginBase):
         cdn_urls = {}
         for key, url in format_section.items():
             cdn_urls[key] = (url % url_vars).rstrip('/')
-        if self.conf.get('hmac_signed_url_secret'):
+        if self.hmac_signed_url_secret:
             for key, url in cdn_urls.iteritems():
                 parsed = urlparse(url)
-                token = hmac.new(key=self.conf.get('hmac_signed_url_secret'),
+                token = hmac.new(key=self.hmac_signed_url_secret,
                     msg=parsed.hostname, digestmod=sha1).hexdigest()
                 # only keep the first 30 chars of hash to keep label size <= 63
                 cdn_urls[key] = '%s://%s-%s' % (parsed.scheme, token[:30],
@@ -601,22 +623,18 @@ class OriginDbHandler(OriginBase):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if req.method in ('PUT', 'POST'):
-            try:
+        try:
+            if req.method in ('PUT', 'POST'):
                 return self.origin_db_puts_posts(env, req)
-            except OriginDbFailure, e:
-                self.logger.exception(e)
-                return HTTPInternalServerError('Problem saving CDN data')
-        if req.method == 'GET':
-            return self.origin_db_get(env, req)
-        if req.method == 'HEAD':
-            return self.origin_db_head(env, req)
-        if req.method == 'DELETE':
-            try:
+            if req.method == 'GET':
+                return self.origin_db_get(env, req)
+            if req.method == 'HEAD':
+                return self.origin_db_head(env, req)
+            if req.method == 'DELETE':
                 return self.origin_db_delete(env, req)
-            except OriginDbFailure, e:
-                self.logger.exception(e)
-                return HTTPInternalServerError('Delete failed')
+        except OriginDbFailure, e:
+            self.logger.exception(e)
+            return HTTPInternalServerError('Origin DB Failure')
         return HTTPNotFound()
 
 

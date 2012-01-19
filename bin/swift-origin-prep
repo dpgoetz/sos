@@ -24,7 +24,6 @@ from swift.common.utils import urlparse
 
 
 if __name__ == '__main__':
-#    gettext.install('origin', unicode=1) #TODO :  do i need this? i'm not using _
 
     parser = OptionParser(usage='Usage: %prog [options]')
     parser.add_option('-A', '--admin-url', dest='admin_url',
@@ -50,7 +49,7 @@ if __name__ == '__main__':
         parsed_path = '/'
     elif parsed_path[-1] != '/':
         parsed_path += '/'
-    path = '%s.prep' % parsed_path #TODO: WHY was THIS v2 ????
+    path = '%s.prep' % parsed_path
     headers = {'X-Origin-Admin-User': options.admin_user,
                'X-Origin-Admin-Key': options.admin_key}
     conn = http_connect(parsed.hostname, parsed.port, 'POST', path, headers,

@@ -40,6 +40,7 @@ origin_cdn_host_suffixes = origin_cdn.com
 origin_account = .origin
 hash_path_suffix = testing
 number_hash_id_containers = 100
+hmac_signed_url_secret = 'asdf'
 [outgoing_url_format]
 # the entries in this section "key = value" determines the blah blah...
 X-CDN-URI = http://%(hash)s\.r%(hash_mod)d\.origin_cdn.com:8080

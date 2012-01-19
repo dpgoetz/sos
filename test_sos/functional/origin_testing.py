@@ -183,23 +183,26 @@ class TestOrigin(unittest.TestCase):
 
     def test_db_listing(self):
 
-        def put_sos(url, token, parsed, conn, cont):
-            conn.request('PUT',
-                parsed.path + '/' + cont, '',
-                self._db_headers({'X-Auth-Token': token,
-                                  'X-TTL': 60 * 60 * 24}))
+        def put_sos(url, token, parsed, conn, cont, headers={}):
+            headers.update({'X-Auth-Token': token, 'X-TTL': 60 * 60 * 24})
+            conn.request('PUT', parsed.path + '/' + cont, '',
+                self._db_headers(headers))
             return check_response(conn)
 
-        def get_sos(url, token, parsed, conn, output_format):
-            conn.request('GET',
-                parsed.path + '?format=%s' % output_format, '',
+        def get_sos(url, token, parsed, conn, output_format, cdn_enabled=''):
+            conn.request('GET', parsed.path + '?format=%s&enabled=%s' %
+                (output_format, cdn_enabled), '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
-        conts = [uuid4().hex for i in xrange(10)]
+        conts = [uuid4().hex for i in xrange(5)]
+        conts.extend(['x' + uuid4().hex for i in xrange(5)])
         for cont in conts:
             self.conts_to_delete.append(cont)
-            resp = retry(put_sos, cont)
+            if cont.startswith('x'):
+                resp = retry(put_sos, cont, {'x-cdn-enabled': 'false'})
+            else:
+                resp = retry(put_sos, cont)
             resp.read()
             self.assertEquals(resp.status, 201)
 
@@ -207,6 +210,14 @@ class TestOrigin(unittest.TestCase):
         body = resp.read()
         for cont in conts:
             self.assert_(cont in body)
+        resp = retry(get_sos, '', 'true')
+        body = resp.read()
+        for cont in conts:
+            self.assertEquals(not cont.startswith('x'), cont in body)
+        resp = retry(get_sos, '', 'false')
+        body = resp.read()
+        for cont in conts:
+            self.assertEquals(cont.startswith('x'), cont in body)
 
         resp = retry(get_sos, 'json')
         body = resp.read()
