@@ -26,6 +26,39 @@ Overview
 A WSGI Middleware that provides access to customer containers in Swift for use
 by a CDN service.  Uses Swift itself as its back-end store.
 
+Getting Started
+---------------
+
+Copy the etc/sos.conf-sample to /etc/swift/sos.conf and make the changes to
+your proxy.conf as shown in etc/proxy-server.conf-sample.
+
+Reload your proxy-server
+``swift-init proxy reload``
+
+Prepare the environment:
+``swift-origin-prep -K password``
+
+You make requests to the cdn management interface by using the origin_db
+hostname. To cdn-enable a container, do a container PUT just like you would in
+swift except add the header 'Host: origin_db.com' to the request. When
+you do a HEAD request you will see the cdn url returned as a header.
+
+For example on a SAIO:
+Get/set token:
+``export TOKEN=AUTH_token``
+
+Put container in swift:
+``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub -XPUT``
+
+Put object in container:
+``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub/file.html -XPUT -d '<html><b>It Works!!</b></html>'``
+
+CDN enabled the container:
+``curl -i -H "X-Auth-Token: $TOKEN" http://127.0.0.1:8080/v1/AUTH_test/pub -XPUT -H 'Host: origin_db.com'``
+
+Make origin request:
+``curl http://127.0.0.1:8080/file.html -H 'Host: c0cd095b4ec76c09a6549995abb62558.r56.origin_cdn.com'``
+
 Code-Generated Documentation
 ----------------------------
 
