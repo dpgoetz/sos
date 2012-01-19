@@ -38,7 +38,7 @@ Reload your proxy-server
 Prepare the environment:
 ``swift-origin-prep -K password``
 
-You make requests to the cdn management interface by using the origin_db
+You make requests to the cdn management interface by using the origin_db.com
 hostname. To cdn-enable a container, do a container PUT just like you would in
 swift except add the header 'Host: origin_db.com' to the request. When
 you do a HEAD request you will see the cdn url returned as a header.

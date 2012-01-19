@@ -79,8 +79,8 @@ class HashData(object):
     @classmethod
     def create_from_json(cls, json_str):
         """
-        :returns HashData object init from str passed in
-        :raises ValueError if there's a problem with json
+        :returns: HashData object init from str passed in
+        :raises: ValueError if there's a problem with json
         """
         try:
             data = json.loads(json_str)
@@ -118,8 +118,8 @@ class OriginBase(object):
 
     def get_cdn_data(self, env, cdn_obj_path):
         """
-        Returns HashData object by doing a GET to the obj in the .hash
-        container.
+        :returns: HashData object by doing a GET to the obj in the .hash
+            container.
         """
         memcache_client = utils.cache_from_env(env)
         memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
@@ -161,11 +161,10 @@ class AdminHandler(OriginBase):
 
     def is_origin_admin(self, req):
         """
-        Returns True if the admin specified in the request represents the
-        .origin_admin.
-
         :param req: The webob.Request to check.
         :param returns: True if .origin_admin.
+        :returns: True if the admin specified in the request represents the
+            .origin_admin otherwise False
         """
         return self.admin_key and \
            req.headers.get('x-origin-admin-user') == '.origin_admin' and \
@@ -701,7 +700,7 @@ class OriginServer(object):
 
 
 def filter_factory(global_conf, **local_conf):
-    """Returns a WSGI filter app for use with paste.deploy."""
+    """:returns: a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
 
