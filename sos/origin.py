@@ -37,6 +37,8 @@ CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 MEMCACHE_TIMEOUT = 3600
+NUMBER_DNS_SHARDS = 100
+DEFAULT_TTL = 295200
 
 
 class InvalidContentType(Exception):
@@ -458,7 +460,7 @@ class OriginDbHandler(OriginBase):
             raise InvalidConfiguration('Could not find format for: %s, %s: %s'
                 % (request_type, request_format_tag, self.conf))
 
-        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % 100}
+        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % NUMBER_DNS_SHARDS}
         cdn_urls = {}
         for key, url in format_section.items():
             cdn_urls[key] = (url % url_vars).rstrip('/')
@@ -539,7 +541,7 @@ class OriginDbHandler(OriginBase):
             return HTTPBadRequest()
         hsh = self._hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
-        ttl, cdn_enabled, logs_enabled = '295200', True, False
+        ttl, cdn_enabled, logs_enabled = DEFAULT_TTL, True, False
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
             ttl = hash_data.ttl
