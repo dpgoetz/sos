@@ -149,8 +149,9 @@ class OriginBase(object):
                 logger.warn('Invalid HashData json: %s' % cdn_obj_path)
         if resp.status_int == 404:
             if memcache_client:
+                # only memcache for 30 secs in case adding container to swift
                 memcache_client.set(memcache_key, '404',
-                    serialize=False, timeout=MEMCACHE_TIMEOUT)
+                    serialize=False, timeout=CACHE_404)
 
         return None
 
