@@ -486,6 +486,13 @@ class OriginDbHandler(OriginBase):
                 'URI format: /<api version>/<account>/<container>')
         hsh = self._hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
+
+        # Remove memcache entry
+        memcache_client = utils.cache_from_env(env)
+        if memcache_client:
+            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+            memcache_client.delete(memcache_key)
+
         resp = make_pre_authed_request(env, 'DELETE',
                 cdn_obj_path, agent='SwiftOrigin').get_response(self.app)
 
@@ -503,11 +510,6 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not DELETE listing path in origin '
                 'db: %s %s' % (cdn_list_path, list_resp.status_int))
 
-        # Remove memcache entry
-        memcache_client = utils.cache_from_env(env)
-        if memcache_client:
-            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
-            memcache_client.delete(memcache_key)
         return HTTPNoContent(request=req)
 
     def origin_db_head(self, env, req):
@@ -515,8 +517,7 @@ class OriginDbHandler(OriginBase):
         Handles HEAD requests into Origin database
         """
         try:
-            vsn, account, container, _junk = utils.split_path(
-                req.path, 3, 4, True)
+            vsn, account, container = utils.split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest()
         hsh = self._hash_path(account, container)
@@ -536,8 +537,7 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         """
         try:
-            vsn, account, container, _junk = utils.split_path(
-                req.path, 3, 4, True)
+            vsn, account, container = utils.split_path(req.path, 3, 3)
         except ValueError, e:
             return HTTPBadRequest()
         hsh = self._hash_path(account, container)
