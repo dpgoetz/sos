@@ -34,7 +34,7 @@ hash_path_suffix = sos_suffix
 # including the object_name of course).
 # The keys are not used- they just need to be unique
 regex_0 = ^http:\/\/(?P<hash>[\-\w]+)\.r\d+\.origin_cdn\.com\/?(?P<object_name>(.*))?$
-regex_1 = ^https:\/\/(?P<hash>[\-\w]+)\.ssl.origin_cdn\.com\/?(?P<object_name>(.*))?$ / for static web (testing testing testing)
+regex_1 = ^https:\/\/(?P<hash>[\-\w]+)\.ssl.origin_cdn\.com\/?(?P<object_name>(.*))?$
 
 # The format of the data returned from HEAD and GET requests to the origin
 # server is highly configurable.
