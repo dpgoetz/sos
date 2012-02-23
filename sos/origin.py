@@ -57,6 +57,10 @@ class InvalidConfiguration(Exception):
     pass
 
 
+class OriginRequestNotAllowed(Exception):
+    pass
+
+
 class HashData(object):
     """
     object to keep track on json data files
@@ -215,6 +219,11 @@ class CdnHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_cdn')
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
                                               10 * 1024 ** 3))
+        self.allowed_remote_ips = []
+        remote_ips = conf.get('allowed_remote_ips')
+        if remote_ips:
+            self.allowed_remote_ips = \
+                [ip.strip() for ip in remote_ips.split(',')]
         if not bool(conf.get('incoming_url_regex')):
             raise InvalidConfiguration('Invalid config for CdnHandler')
         self.cdn_regexes = []
@@ -238,6 +247,11 @@ class CdnHandler(OriginBase):
         if req.method not in ('GET', 'HEAD'):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPMethodNotAllowed(request=req, headers=headers)
+        if self.allowed_remote_ips and \
+                req.remote_addr not in self.allowed_remote_ips:
+            raise OriginRequestNotAllowed(
+                'SOS Origin: Remote IP %s not allowed' % req.remote_addr)
+
         # allow earlier middleware to override hash and obj_name
         hsh = env.get('swift.cdn_hash')
         object_name = env.get('swift.cdn_object_name')
@@ -251,6 +265,8 @@ class CdnHandler(OriginBase):
                     break
 
         if not (hsh and object_name):
+            self.logger.debug('Hash %s or Obj %s not found in %s' %
+                (hsh, object_name, req.url))
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
         if hsh.find('-') >= 0:
@@ -317,6 +333,7 @@ class OriginDbHandler(OriginBase):
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
+        self.token_length = self.conf.get('hmac_token_length', 30)
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -470,9 +487,8 @@ class OriginDbHandler(OriginBase):
                 parsed = urlparse(url)
                 token = hmac.new(key=self.hmac_signed_url_secret,
                     msg=parsed.hostname, digestmod=sha1).hexdigest()
-                # only keep the first 30 chars of hash to keep label size <= 63
-                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme, token[:30],
-                                                parsed.hostname)
+                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
+                    token[:self.token_length], parsed.hostname)
         return cdn_urls
 
     def origin_db_delete(self, env, req):
@@ -699,6 +715,9 @@ class OriginServer(object):
             logger = get_logger(self.conf, log_route='origin_server')
             logger.exception(e)
             return HTTPInternalServerError(e)(env, start_response)
+        except OriginRequestNotAllowed, e:
+            logger = get_logger(self.conf, log_route='origin_server')
+            logger.debug(e)
         return self.app(env, start_response)
 
 
