@@ -110,7 +110,7 @@ class OriginBase(object):
         self.origin_account = conf.get('origin_account', '.origin')
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
-        self.token_length = self.conf.get('hmac_token_length', 30)
+        self.token_length = int(self.conf.get('hmac_token_length', 30))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
