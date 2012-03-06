@@ -61,6 +61,10 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
+def cdn_data_memcache_key(origin_account, cdn_obj_path):
+    return '%s/%s' % (origin_account, cdn_obj_path)
+
+
 class HashData(object):
     """
     object to keep track on json data files
@@ -128,7 +132,7 @@ class OriginBase(object):
             container.
         """
         memcache_client = utils.cache_from_env(env)
-        memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+        memcache_key = cdn_data_memcache_key(self.origin_account, cdn_obj_path)
         if memcache_client:
             cached_cdn_data = memcache_client.get(memcache_key)
             if cached_cdn_data == '404':
@@ -506,7 +510,8 @@ class OriginDbHandler(OriginBase):
         # Remove memcache entry
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+            memcache_key = cdn_data_memcache_key(self.origin_account,
+                                                 cdn_obj_path)
             memcache_client.delete(memcache_key)
 
         resp = make_pre_authed_request(env, 'DELETE',
@@ -595,7 +600,8 @@ class OriginDbHandler(OriginBase):
 
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_key = '%s/%s' % (self.origin_account, cdn_obj_path)
+            memcache_key = cdn_data_memcache_key(self.origin_account,
+                                                 cdn_obj_path)
             memcache_client.set(memcache_key, cdn_obj_data,
                 serialize=False, timeout=MEMCACHE_TIMEOUT)
 
@@ -622,7 +628,6 @@ class OriginDbHandler(OriginBase):
         if cdn_list_resp.status_int // 100 != 2:
             raise OriginDbFailure('Could not PUT/POST to cdn listing in '
                 'origin db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
-        cdn_success = True
         # PUTs and POSTs have the headers as HEAD
         cdn_url_headers = self._get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':

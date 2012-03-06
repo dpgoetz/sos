@@ -60,6 +60,17 @@ CDN enabled the container:
 Make origin request:
 ``curl http://127.0.0.1:8080/file.html -H 'Host: c0cd095b4ec76c09a6549995abb62558.r56.origin_cdn.com'``
 
+Building Packages
+-----------------
+
+To build packages I've been using python-stdeb.
+
+``sudo easy_install stdeb``
+
+cd into sos directory and run:
+``python setup.py --command-packages=stdeb.command debianize``
+
+
 Code-Generated Documentation
 ----------------------------
 
