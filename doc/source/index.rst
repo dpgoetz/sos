@@ -68,7 +68,7 @@ To build packages I've been using python-stdeb.
 ``sudo easy_install stdeb``
 
 cd into sos directory and run:
-``python setup.py --command-packages=stdeb.command debianize``
+``python setup.py --command-packages=stdeb.command bdist_deb``
 
 
 Code-Generated Documentation
