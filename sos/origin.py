@@ -61,8 +61,6 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
-def cdn_data_memcache_key(origin_account, cdn_obj_path):
-    return '%s/%s' % (origin_account, cdn_obj_path)
 
 
 class HashData(object):
@@ -111,6 +109,8 @@ class OriginBase(object):
         self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
+        self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
+        self.token_length = self.conf.get('hmac_token_length', 30)
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -126,13 +126,16 @@ class OriginBase(object):
         hsh_num = int(hsh, 16) % self.num_hash_cont
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
+    def cdn_data_memcache_key(self, cdn_obj_path):
+        return '%s/%s' % (self.origin_account, cdn_obj_path)
+
     def get_cdn_data(self, env, cdn_obj_path):
         """
         :returns: HashData object by doing a GET to the obj in the .hash
             container.
         """
         memcache_client = utils.cache_from_env(env)
-        memcache_key = cdn_data_memcache_key(self.origin_account, cdn_obj_path)
+        memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
         if memcache_client:
             cached_cdn_data = memcache_client.get(memcache_key)
             if cached_cdn_data == '404':
@@ -163,6 +166,37 @@ class OriginBase(object):
 
         return None
 
+    def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
+        """
+        Returns a dict of the outgoing urls for a HEAD or GET req.
+        :param request_format_tag: the tag matching the section in the conf
+            file that will be used to format the request
+        """
+        format_section = None
+        section_names = ['outgoing_url_format_%s_%s' % (request_type.lower(),
+                                                        request_format_tag),
+                         'outgoing_url_format_%s' % request_type.lower(),
+                         'outgoing_url_format']
+        for section_name in section_names:
+            format_section = self.conf.get(section_name)
+            if format_section:
+                break
+        else:
+            raise InvalidConfiguration('Could not find format for: %s, %s: %s'
+                % (request_type, request_format_tag, self.conf))
+
+        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % NUMBER_DNS_SHARDS}
+        cdn_urls = {}
+        for key, url in format_section.items():
+            cdn_urls[key] = (url % url_vars).rstrip('/')
+        if self.hmac_signed_url_secret:
+            for key, url in cdn_urls.iteritems():
+                parsed = urlparse(url)
+                token = hmac.new(key=self.hmac_signed_url_secret,
+                    msg=parsed.hostname, digestmod=sha1).hexdigest()
+                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
+                    token[:self.token_length], parsed.hostname)
+        return cdn_urls
 
 class AdminHandler(OriginBase):
 
@@ -336,8 +370,6 @@ class OriginDbHandler(OriginBase):
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
-        self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
-        self.token_length = self.conf.get('hmac_token_length', 30)
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -463,37 +495,6 @@ class OriginDbHandler(OriginBase):
         except OriginDbNotFound:
             return HTTPNotFound(request=req)
 
-    def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
-        """
-        Returns a dict of the outgoing urls for a HEAD or GET req.
-        :param request_format_tag: the tag matching the section in the conf
-            file that will be used to format the request
-        """
-        format_section = None
-        section_names = ['outgoing_url_format_%s_%s' % (request_type.lower(),
-                                                        request_format_tag),
-                         'outgoing_url_format_%s' % request_type.lower(),
-                         'outgoing_url_format']
-        for section_name in section_names:
-            format_section = self.conf.get(section_name)
-            if format_section:
-                break
-        else:
-            raise InvalidConfiguration('Could not find format for: %s, %s: %s'
-                % (request_type, request_format_tag, self.conf))
-
-        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % NUMBER_DNS_SHARDS}
-        cdn_urls = {}
-        for key, url in format_section.items():
-            cdn_urls[key] = (url % url_vars).rstrip('/')
-        if self.hmac_signed_url_secret:
-            for key, url in cdn_urls.iteritems():
-                parsed = urlparse(url)
-                token = hmac.new(key=self.hmac_signed_url_secret,
-                    msg=parsed.hostname, digestmod=sha1).hexdigest()
-                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
-                    token[:self.token_length], parsed.hostname)
-        return cdn_urls
 
     def origin_db_delete(self, env, req):
         """ Handles DELETEs in the Origin database """
@@ -510,8 +511,7 @@ class OriginDbHandler(OriginBase):
         # Remove memcache entry
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_key = cdn_data_memcache_key(self.origin_account,
-                                                 cdn_obj_path)
+            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
             memcache_client.delete(memcache_key)
 
         resp = make_pre_authed_request(env, 'DELETE',
@@ -600,8 +600,7 @@ class OriginDbHandler(OriginBase):
 
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_key = cdn_data_memcache_key(self.origin_account,
-                                                 cdn_obj_path)
+            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
             memcache_client.set(memcache_key, cdn_obj_data,
                 serialize=False, timeout=MEMCACHE_TIMEOUT)
 
@@ -665,7 +664,6 @@ class OriginServer(object):
 
     def __init__(self, app, conf):
         self.app = app
-        #self.conf = conf
         origin_conf = conf['sos_conf']
         conf = readconf(origin_conf, raw=True)
         self.conf = conf['sos']

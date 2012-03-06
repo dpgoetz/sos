@@ -247,7 +247,7 @@ max_cdn_file_size = 0
 
     def test_origin_db_post_ttl(self):
         data = {'account': 'acc', 'container': 'cont',
-                'ttl': 29500, 'logs_enabled': 'false', 'cdn_enabled': 'true'}
+                'ttl': 29500, 'logs_enabled': False, 'cdn_enabled': True}
         self.test_origin.app = FakeApp(iter(
             [('200 Ok', {}, json.dumps(data))]))
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -285,8 +285,8 @@ max_cdn_file_size = 0
 
     def test_origin_db_post_404(self):
         data = {'account': 'acc', 'container': 'cont',
-                'ttl': 29500, 'logs_enabled': 'false',
-                'cdn_enabled': 'true'}
+                'ttl': 29500, 'logs_enabled': False,
+                'cdn_enabled': True}
         self.test_origin.app = FakeApp(iter([
             ('404 Not Found', {}, '')])) # call to _get_cdn_data
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -297,8 +297,8 @@ max_cdn_file_size = 0
 
     def test_origin_db_post(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true',
-                'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True,
+                'cdn_enabled': False})
         data = {'account': 'acc', 'container': 'cont', 'cdn_enabled': 'true'}
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
@@ -577,14 +577,14 @@ delete_enabled = true
     def test_db_memcache_head(self):
         def mock_memcache(env):
             return FakeMemcache(override_get=json.dumps({'account': 'acc',
-                'container': 'cont', 'ttl': 5555, 'logs_enabled': 'true',
-                'cdn_enabled': 'false'}))
+                'container': 'cont', 'ttl': 5555, 'logs_enabled': True,
+                'cdn_enabled': False}))
         was_memcache = utils.cache_from_env
         try:
             utils.cache_from_env = mock_memcache
             self.test_origin.app = FakeApp(iter([('200 Ok', {},
                 json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
-                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+                            'logs_enabled': True, 'cdn_enabled': False}))]))
             req = Request.blank(
                 'http://origin_db.com:8080/v1/acc/cont',
                 environ={'REQUEST_METHOD': 'HEAD'})
@@ -639,7 +639,7 @@ delete_enabled = true
             utils.cache_from_env = mock_memcache
             self.test_origin.app = FakeApp(iter([('200 Ok', {},
                 json.dumps({'account': 'acc', 'container': 'cont', 'ttl': 1234,
-                            'logs_enabled': 'true', 'cdn_enabled': 'false'}))]))
+                            'logs_enabled': True, 'cdn_enabled': False}))]))
             req = Request.blank(
                 'http://origin_db.com:8080/v1/acc/cont',
                 environ={'REQUEST_METHOD': 'HEAD'})
@@ -710,7 +710,7 @@ hash_path_suffix = testing
 
     def test_origin_db_head(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': False})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data)])) # call to _get_cdn_data
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -734,7 +734,7 @@ hash_path_suffix = testing
 
     def test_cdn_get_no_content(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('304 No Content', {}, '')])) #call to get obj
@@ -767,7 +767,7 @@ hash_path_suffix = testing
 
     def test_cdn_get_regex(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
 
         def check_urls(req):
             vrs, acc, cont, obj = utils.split_path(req.path, 1, 4)
@@ -793,7 +793,7 @@ hash_path_suffix = testing
 
     def test_cdn_get(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('200 Ok', {}, 'Test obj body.',
@@ -810,7 +810,7 @@ hash_path_suffix = testing
 
     def test_cdn_get_fail(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
-                'ttl': 1234, 'logs_enabled': 'true', 'cdn_enabled': 'false'})
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('500', {}, 'Failure.')])) #call to get obj
