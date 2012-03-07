@@ -30,7 +30,7 @@ hash_path_suffix = sos_suffix
 # hmac_token_length = 30
 # comma separated list of ip addresses allowed into origin server, by default
 # is not set which allows in all ips. Will be checked against REMOTE_ADDR
-# allowed_remote_ips =
+# allowed_origin_remote_ips =
 
 [incoming_url_regex]
 # These regular expressions will be used to parse to cdn request urls to get

@@ -257,10 +257,10 @@ class CdnHandler(OriginBase):
         self.logger = get_logger(conf, log_route='origin_cdn')
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
                                               10 * 1024 ** 3))
-        self.allowed_remote_ips = []
-        remote_ips = conf.get('allowed_remote_ips')
+        self.allowed_origin_remote_ips = []
+        remote_ips = conf.get('allowed_origin_remote_ips')
         if remote_ips:
-            self.allowed_remote_ips = \
+            self.allowed_origin_remote_ips = \
                 [ip.strip() for ip in remote_ips.split(',')]
         if not bool(conf.get('incoming_url_regex')):
             raise InvalidConfiguration('Invalid config for CdnHandler')
@@ -285,8 +285,8 @@ class CdnHandler(OriginBase):
         if req.method not in ('GET', 'HEAD'):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPMethodNotAllowed(request=req, headers=headers)
-        if self.allowed_remote_ips and \
-                req.remote_addr not in self.allowed_remote_ips:
+        if self.allowed_origin_remote_ips and \
+                req.remote_addr not in self.allowed_origin_remote_ips:
             raise OriginRequestNotAllowed(
                 'SOS Origin: Remote IP %s not allowed' % req.remote_addr)
 
@@ -311,7 +311,8 @@ class CdnHandler(OriginBase):
             hsh = hsh.split('-', 1)[1]
         try:
             cdn_obj_path = self.get_hsh_obj_path(hsh)
-        except ValueError:
+        except ValueError, e:
+            self.logger.debug('get_hsh_obj_path error: %s' % e)
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPBadRequest(request=req, headers=headers)
         hash_data = self.get_cdn_data(env, cdn_obj_path)
