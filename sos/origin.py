@@ -61,8 +61,6 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
-
-
 class HashData(object):
     """
     object to keep track on json data files
@@ -197,6 +195,7 @@ class OriginBase(object):
                 cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
                     token[:self.token_length], parsed.hostname)
         return cdn_urls
+
 
 class AdminHandler(OriginBase):
 
@@ -495,7 +494,6 @@ class OriginDbHandler(OriginBase):
             return Response(body=response_body, headers=resp_headers)
         except OriginDbNotFound:
             return HTTPNotFound(request=req)
-
 
     def origin_db_delete(self, env, req):
         """ Handles DELETEs in the Origin database """
