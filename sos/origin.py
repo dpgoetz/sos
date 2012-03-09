@@ -1,4 +1,4 @@
-# Copyright (c) 2012 OpenStack, LLC.
+# Copyright (c) 2011-2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -63,7 +63,7 @@ class OriginRequestNotAllowed(Exception):
 
 class HashData(object):
     """
-    object to keep track on json data files
+    Easier usage and standardized JSON handling of container hash data.
     """
 
     def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
@@ -93,7 +93,7 @@ class HashData(object):
             return HashData(data['account'], data['container'], data['ttl'],
                             data['cdn_enabled'], data['logs_enabled'])
         except (KeyError, ValueError, TypeError), e:
-            raise ValueError("Problem loading json: %s" % e)
+            raise ValueError("Problem loading json: %s: %r" % (e, json_str))
 
 
 class OriginBase(object):
@@ -260,7 +260,7 @@ class CdnHandler(OriginBase):
         remote_ips = conf.get('allowed_origin_remote_ips')
         if remote_ips:
             self.allowed_origin_remote_ips = \
-                [ip.strip() for ip in remote_ips.split(',')]
+                [ip.strip() for ip in remote_ips.split(',') if ip.strip()]
         if not bool(conf.get('incoming_url_regex')):
             raise InvalidConfiguration('Invalid config for CdnHandler')
         self.cdn_regexes = []
@@ -661,17 +661,22 @@ class OriginDbHandler(OriginBase):
 
 class OriginServer(object):
 
-    def __init__(self, app, conf):
-        self.app = app
+    @classmethod
+    def _translate_conf(cls, conf):
         origin_conf = conf['sos_conf']
         conf = readconf(origin_conf, raw=True)
-        self.conf = conf['sos']
+        xconf = conf['sos']
         for format_section in ['outgoing_url_format',
                 'outgoing_url_format_head', 'outgoing_url_format_get',
                 'outgoing_url_format_get_xml', 'outgoing_url_format_get_json',
                 'incoming_url_regex']:
             if conf.get(format_section, None):
-                self.conf[format_section] = conf[format_section]
+                xconf[format_section] = conf[format_section]
+        return xconf
+
+    def __init__(self, app, conf):
+        self.app = app
+        self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [host for host in
             self.conf.get('origin_db_hosts', '').split(',') if host]
