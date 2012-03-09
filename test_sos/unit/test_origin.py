@@ -27,6 +27,13 @@ from sos import origin
 from swift.common import utils
 
 
+class PropertyObject(object):
+    """
+    Simple empty object that you set adhoc attributes on.
+    """
+    pass
+
+
 class FakeConf(object):
 
     def __init__(self, data=None):
@@ -114,6 +121,7 @@ class FakeMemcache(object):
 
     def __init__(self, override_get=''):
         self.store = {}
+        self.timeouts = {}
         self.override_get = override_get
 
     def get(self, key):
@@ -123,10 +131,166 @@ class FakeMemcache(object):
 
     def set(self, key, value, serialize=False, timeout=0):
         self.store[key] = value
+        self.timeouts[key] = timeout
         return True
 
     def delete(self, key):
         raise Exception('delete called')
+
+
+class FakeLogger(object):
+
+    def __init__(self):
+        self.debug_calls = []
+
+    def debug(self, *args, **kwargs):
+        self.debug_calls.append((args, kwargs))
+
+
+class TestHashData(unittest.TestCase):
+
+    def test_init(self):
+        h = origin.HashData('a', 'c', '123', True, False)
+        self.assertEquals(h.account, 'a')
+        self.assertEquals(h.container, 'c')
+        self.assertEquals(h.ttl, 123)
+        self.assertTrue(h.cdn_enabled)
+        self.assertFalse(h.logs_enabled)
+
+    def test_get_json_str(self):
+        h = origin.HashData('a', 'c', '123', True, False)
+        self.assertEquals(origin.json.loads(h.get_json_str()),
+            {'account': 'a', 'container': 'c', 'ttl': 123,
+             'cdn_enabled': True, 'logs_enabled': False})
+
+    def test_str(self):
+        h = origin.HashData('a', 'c', '123', True, False)
+        self.assertEquals(origin.json.loads(str(h)),
+            {'account': 'a', 'container': 'c', 'ttl': 123,
+             'cdn_enabled': True, 'logs_enabled': False})
+
+    def test_create_from_json(self):
+        h = origin.HashData.create_from_json(
+            str(origin.HashData('a', 'c', '123', True, False)))
+        self.assertEquals(h.account, 'a')
+        self.assertEquals(h.container, 'c')
+        self.assertEquals(h.ttl, 123)
+        self.assertTrue(h.cdn_enabled)
+        self.assertFalse(h.logs_enabled)
+
+
+class TestOriginBase(unittest.TestCase):
+
+    def setUp(self):
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        self.origin_base = origin.OriginBase(FakeApp(), conf)
+
+    def test_memcaching_not_found(self):
+        memcache = FakeMemcache()
+        env = {'swift.cache': memcache}
+        hsh = self.origin_base._hash_path('a', 'c')
+        path = self.origin_base.get_hsh_obj_path(hsh)
+        key = self.origin_base.cdn_data_memcache_key(path)
+        make_pre_authed_request_calls = []
+
+        def _make_pre_authed_request(*args, **kwargs):
+            make_pre_authed_request_calls.append((args, kwargs))
+            resp = PropertyObject()
+            resp.status_int = 404
+            req = PropertyObject()
+            req.get_response = lambda *a, **kwargs: resp
+            return req
+
+        make_pre_authed_request_orig = origin.make_pre_authed_request
+        try:
+            origin.make_pre_authed_request = _make_pre_authed_request
+            self.assertEquals(self.origin_base.get_cdn_data(env, path), None)
+        finally:
+            origin.make_pre_authed_request = make_pre_authed_request_orig
+        self.assertEquals(len(make_pre_authed_request_calls), 1)
+        self.assertEquals(memcache.store, {key: '404'})
+        self.assertEquals(memcache.timeouts, {key: origin.CACHE_404})
+
+        del make_pre_authed_request_calls[:]
+        self.assertEquals(self.origin_base.get_cdn_data(env, path), None)
+        self.assertEquals(len(make_pre_authed_request_calls), 0)
+
+
+class TestCdnHandler(unittest.TestCase):
+
+    def setUp(self):
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        self.cdn_handler = origin.CdnHandler(FakeApp(), conf)
+
+    def test_allowed_origin_remote_ips_conf(self):
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        if 'allowed_origin_remote_ips' in conf:
+            del conf['allowed_origin_remote_ips']
+        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        self.assertEquals(cdn_handler.allowed_origin_remote_ips, [])
+
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        conf['allowed_origin_remote_ips'] = '1.2.3.4'
+        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        self.assertEquals(cdn_handler.allowed_origin_remote_ips, ['1.2.3.4'])
+
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        conf['allowed_origin_remote_ips'] = ', , 1.2.3.4, 5.6.7.8 , ,'
+        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        self.assertEquals(cdn_handler.allowed_origin_remote_ips,
+                          ['1.2.3.4', '5.6.7.8'])
+
+    def test_reject_non_allowed_origin_remote_ips(self):
+        conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
+        conf['allowed_origin_remote_ips'] = '1.2.3.4'
+        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        env = {'REQUEST_METHOD': 'HEAD'}
+        req = Request.blank('/test', environ=env)
+        exc = None
+        try:
+            cdn_handler.handle_request(env, req)
+        except origin.OriginRequestNotAllowed, err:
+            exc = err
+        self.assertEquals(str(exc), 'SOS Origin: Remote IP None not allowed')
+
+        env = {'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '5.6.7.8'}
+        req = Request.blank('/test', environ=env)
+        exc = None
+        try:
+            cdn_handler.handle_request(env, req)
+        except origin.OriginRequestNotAllowed, err:
+            exc = err
+        self.assertEquals(str(exc), 'SOS Origin: Remote IP 5.6.7.8 not allowed')
+
+        env = {'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'}
+        req = Request.blank('/test', environ=env)
+        resp = cdn_handler.handle_request(env, req)
+        self.assertEquals(resp.status_int, 404)
+
+    def test_bad_hash(self):
+        self.cdn_handler.logger = logger = FakeLogger()
+        env = {'REQUEST_METHOD': 'HEAD'}
+        req = Request.blank('http://one.r3.origin_cdn.com:8080/obj1.jpg',
+                            environ=env)
+        resp = self.cdn_handler.handle_request(env, req)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(resp.headers['Cache-Control'],
+                          'max-age:86400, public')
+        self.assertEquals(logger.debug_calls, [(("get_hsh_obj_path error: "
+            "invalid literal for int() with base 16: 'one'",), {})])
+        del logger.debug_calls[:]
+
+        env = {'REQUEST_METHOD': 'HEAD', 'swift.cdn_hash': 'one-two',
+               'swift.cdn_object_name': 'obj1.jpg'}
+        req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
+                            environ=env)
+        resp = self.cdn_handler.handle_request(env, req)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(resp.headers['Cache-Control'],
+                          'max-age:86400, public')
+        self.assertEquals(logger.debug_calls, [(("get_hsh_obj_path error: "
+            "invalid literal for int() with base 16: 'two'",), {})])
+        
 
 
 class TestOrigin(unittest.TestCase):
@@ -858,6 +1022,7 @@ hash_path_suffix = testing
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(test_origin)
         self.assertEquals(resp.status_int, 500)
+        
 
 if __name__ == '__main__':
     unittest.main()
