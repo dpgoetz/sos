@@ -1,4 +1,4 @@
-# Copyright (c) 2010 OpenStack, LLC.
+# Copyright (c) 2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -112,7 +112,7 @@ class OriginBase(object):
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
-    def _hash_path(self, account, container):
+    def hash_path(self, account, container):
         return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
                                   self.hash_suffix)).hexdigest()
 
@@ -164,7 +164,7 @@ class OriginBase(object):
 
         return None
 
-    def _get_cdn_urls(self, hsh, request_type, request_format_tag=''):
+    def get_cdn_urls(self, hsh, request_type, request_format_tag=''):
         """
         Returns a dict of the outgoing urls for a HEAD or GET req.
         :param request_format_tag: the tag matching the section in the conf
@@ -386,7 +386,7 @@ class OriginDbHandler(OriginBase):
         """
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
-        hsh = self._hash_path(account, container)
+        hsh = self.hash_path(account, container)
         if not cdn_data.startswith('x-cdn/'):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
@@ -403,7 +403,7 @@ class OriginDbHandler(OriginBase):
                 (account, container, cdn_data))
         if output_format not in ('json', 'xml'):
             return container
-        cdn_url_dict = self._get_cdn_urls(hsh, 'GET',
+        cdn_url_dict = self.get_cdn_urls(hsh, 'GET',
                                           request_format_tag=output_format)
         output_dict = {'name': container, 'cdn_enabled': cdn_enabled,
                        'ttl': ttl, 'log_retention': log_ret}
@@ -504,7 +504,7 @@ class OriginDbHandler(OriginBase):
         except ValueError:
             return HTTPBadRequest('Invalid request. '
                 'URI format: /<api version>/<account>/<container>')
-        hsh = self._hash_path(account, container)
+        hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
 
         # Remove memcache entry
@@ -540,11 +540,11 @@ class OriginDbHandler(OriginBase):
             vsn, account, container = utils.split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest()
-        hsh = self._hash_path(account, container)
+        hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
-            headers = self._get_cdn_urls(hsh, 'HEAD')
+            headers = self.get_cdn_urls(hsh, 'HEAD')
             headers.update({'X-TTL': hash_data.ttl,
                 'X-Log-Retention':
                     hash_data.logs_enabled and 'True' or 'False',
@@ -560,7 +560,7 @@ class OriginDbHandler(OriginBase):
             vsn, account, container = utils.split_path(req.path, 3, 3)
         except ValueError, e:
             return HTTPBadRequest()
-        hsh = self._hash_path(account, container)
+        hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
         ttl, cdn_enabled, logs_enabled = DEFAULT_TTL, True, False
         hash_data = self.get_cdn_data(env, cdn_obj_path)
@@ -627,7 +627,7 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not PUT/POST to cdn listing in '
                 'origin db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
         # PUTs and POSTs have the headers as HEAD
-        cdn_url_headers = self._get_cdn_urls(hsh, 'HEAD')
+        cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
             return HTTPAccepted(request=req,
                                 headers=cdn_url_headers)
