@@ -129,8 +129,10 @@ class OriginBase(object):
 
     def get_cdn_data(self, env, cdn_obj_path):
         """
-        :returns: HashData object by doing a GET to the obj in the .hash
-            container.
+        Retrieves HashData object from memcache or by doing a GET
+        of the cdn_obj_path.
+
+        :returns: HashData object.
         """
         memcache_client = utils.cache_from_env(env)
         memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
@@ -167,8 +169,10 @@ class OriginBase(object):
     def get_cdn_urls(self, hsh, request_type, request_format_tag=''):
         """
         Returns a dict of the outgoing urls for a HEAD or GET req.
-        :param request_format_tag: the tag matching the section in the conf
-            file that will be used to format the request
+
+        :param request_format_tag: the tag matching the section in
+                                   the conf file that will be used to
+                                   format the request
         """
         format_section = None
         section_names = ['outgoing_url_format_%s_%s' % (request_type.lower(),
