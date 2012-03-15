@@ -188,7 +188,7 @@ class TestOriginBase(unittest.TestCase):
     def test_memcaching_not_found(self):
         memcache = FakeMemcache()
         env = {'swift.cache': memcache}
-        hsh = self.origin_base._hash_path('a', 'c')
+        hsh = self.origin_base.hash_path('a', 'c')
         path = self.origin_base.get_hsh_obj_path(hsh)
         key = self.origin_base.cdn_data_memcache_key(path)
         make_pre_authed_request_calls = []
