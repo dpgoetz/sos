@@ -292,7 +292,7 @@ class CdnHandler(OriginBase):
         # allow earlier middleware to override hash and obj_name
         hsh = env.get('swift.cdn_hash')
         object_name = env.get('swift.cdn_object_name')
-        if not (hsh and object_name):
+        if hsh is None or object_name is None:
             for regex in self.cdn_regexes:
                 match_obj = regex.match(req.url)
                 if match_obj:
@@ -300,10 +300,8 @@ class CdnHandler(OriginBase):
                     hsh = match_dict.get('hash')
                     object_name = match_dict.get('object_name')
                     break
-
-        if not (hsh and object_name):
-            self.logger.debug('Hash %s or Obj %s not found in %s' %
-                (hsh, object_name, req.url))
+        if not hsh:
+            self.logger.debug('Hash %s not found in %s' % (hsh, req.url))
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPNotFound(request=req, headers=headers)
         if hsh.find('-') >= 0:
@@ -318,12 +316,12 @@ class CdnHandler(OriginBase):
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
             swift_path = '/v1/%s/%s/%s' % (hash_data.account,
-                                           hash_data.container, object_name)
+                hash_data.container, object_name or '')
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(env, req.method, swift_path,
                 headers=headers, agent='SwiftOrigin').get_response(self.app)
-            if resp.status_int == 304:
+            if resp.status_int in (304, 301):
                 return resp
             # we don't have to worry about the 401 case
             if resp.status_int == 404:

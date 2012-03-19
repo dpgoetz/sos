@@ -891,10 +891,15 @@ hash_path_suffix = testing
                 self.test_origin)
             self.assertEquals(resp.status_int, 405)
 
-        resp = Request.blank('http://1234.r34.origin_cdn.com:8080',
+        prev_data = json.dumps({'account': 'acc', 'container': 'cont',
+                'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, prev_data), # call to _get_cdn_data
+            ('301 Moved Permanently', {}, '')])) #call to get obj
+        resp = Request.blank('http://1234.r34.origin_cdn.com:8080/subdir',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd'}).get_response(self.test_origin)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.status_int, 301)
 
     def test_cdn_get_no_content(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
