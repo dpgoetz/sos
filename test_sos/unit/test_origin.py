@@ -398,6 +398,16 @@ max_cdn_file_size = 0
             environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
         self.assertEquals(resp.status_int, 500)
 
+        fake_conf = FakeConf(data='''[sos]
+origin_admin_key = unittest
+origin_db_hosts = origin_db.com
+origin_account = .origin
+max_cdn_file_size = 0
+'''.split('\n'))
+        factory = origin.filter_factory(
+            {'sos_conf': fake_conf})
+        self.assertRaises(origin.InvalidConfiguration, factory, FakeApp())
+
     def test_origin_db_post_fail(self):
         self.test_origin.app = FakeApp(iter([('204 No Content', {}, '')]))
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -702,6 +712,12 @@ delete_enabled = true
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 400)
+        #bad path/
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/?format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 400)
         #bad limit
         req = Request.blank(
             'http://origin_db.com:8080/v1/acc?limit=hey',
@@ -788,7 +804,7 @@ delete_enabled = true
                 ]))
             req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'x-cdn-enabled': 'True'})
+                headers={'x-cdn-enabled': 'True', 'x-log-retention': 'f'})
             resp = req.get_response(self.test_origin)
             self.assertEquals(resp.status_int, 201)
 
@@ -872,6 +888,23 @@ hash_path_suffix = testing
         self.assert_('<ttl>1234</ttl>' in resp.body)
         self.assertEquals(resp.status_int, 200)
 
+    def test_origin_db_get_marker(self):
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/false-1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/false-2234-false'}])
+        listing_data_enabled = json.dumps([
+            {'name': 'test3', 'content_type': 'x-cdn/true-1234-false'},
+            {'name': 'test4', 'content_type': 'x-cdn/true-2234-false'}])
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data),
+            ('200 Ok', {}, listing_data_enabled)]))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?enabled=true',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
+        self.assert_('test1' not in resp.body)
+        self.assert_('test3' in resp.body)
+        self.assertEquals(resp.status_int, 200)
+
     def test_origin_db_head(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': False})
@@ -895,7 +928,7 @@ hash_path_suffix = testing
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ('301 Moved Permanently', {}, '')])) #call to get obj
+            ('301 Moved Permanently', {'Location': 'lala'}, '')])) #get obj
         resp = Request.blank('http://1234.r34.origin_cdn.com:8080/subdir',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd'}).get_response(self.test_origin)

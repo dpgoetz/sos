@@ -17,7 +17,8 @@ from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized, HTTPNoContent, HTTPAccepted, HTTPCreated, \
     HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
-    HTTPInternalServerError, HTTPPreconditionFailed
+    HTTPInternalServerError, HTTPPreconditionFailed, HTTPNotModified, \
+    HTTPMovedPermanently
 from urllib import unquote, quote
 from urlparse import urlparse
 from hashlib import md5, sha1
@@ -327,12 +328,13 @@ class CdnHandler(OriginBase):
             env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(env, req.method, swift_path,
                 headers=headers, agent='SwiftOrigin').get_response(self.app)
-            if resp.status_int in (304, 301):
-                return resp
-            # we don't have to worry about the 401 case
-            if resp.status_int == 404:
-                return HTTPNotFound(request=req,
-                    headers=self._getCacheHeaders(CACHE_404))
+            if resp.status_int == 301 and 'Location' in resp.headers:
+                resp_headers = self._getCacheHeaders(hash_data.ttl)
+                resp_headers['Location'] = resp.headers['Location']
+                return HTTPMovedPermanently(headers=resp_headers)
+            if resp.status_int == 304:
+                return HTTPNotModified(request=req,
+                    headers=self._getCacheHeaders(hash_data.ttl))
             if resp.status_int == 416:
                 return HTTPRequestRangeNotSatisfiable(request=req,
                     headers=self._getCacheHeaders(CACHE_404))
