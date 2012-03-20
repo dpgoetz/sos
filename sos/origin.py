@@ -301,8 +301,10 @@ class CdnHandler(OriginBase):
                 match_obj = regex.match(req.url)
                 if match_obj:
                     match_dict = match_obj.groupdict()
-                    hsh = match_dict.get('hash')
-                    object_name = match_dict.get('object_name')
+                    if not hsh:
+                        hsh = match_dict.get('hash')
+                    if not object_name:
+                        object_name = match_dict.get('object_name')
                     break
         if not hsh:
             self.logger.debug('Hash %s not found in %s' % (hsh, req.url))
