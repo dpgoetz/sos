@@ -545,7 +545,7 @@ max_cdn_file_size = 0
         resp = req.get_response(self.test_origin)
         data = resp.body.split('\n')
         self.assertEquals(data[0], 'test1')
-        self.assertEquals(len(data), 1)
+        self.assertEquals(len(data), 2)
         self.assertEquals(resp.status_int, 200)
 
     def test_origin_db_get_json(self):

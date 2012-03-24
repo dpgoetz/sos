@@ -185,8 +185,8 @@ class OriginBase(object):
             if format_section:
                 break
         else:
-            raise InvalidConfiguration('Could not find format for: %s, %s: %s'
-                % (request_type, request_format_tag, self.conf))
+            raise InvalidConfiguration('Could not find format for: %s, %s'
+                % (request_type, request_format_tag))
 
         url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % NUMBER_DNS_SHARDS}
         cdn_urls = {}
@@ -392,7 +392,7 @@ class OriginDbHandler(OriginBase):
         """
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
-        hsh = self.hash_path(account, container)
+        hsh = self.hash_path(account, quote(container.encode('utf-8')))
         if not cdn_data.startswith('x-cdn/'):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
@@ -496,7 +496,7 @@ class OriginDbHandler(OriginBase):
                 response_body = json.dumps(listing_formatted)
             else:
                 resp_headers['Content-Type'] = 'text/plain; charset=UTF-8'
-                response_body = '\n'.join(listing_formatted)
+                response_body = '\n'.join(listing_formatted) + '\n'
             return Response(body=response_body, headers=resp_headers)
         except OriginDbNotFound:
             return HTTPNotFound(request=req)
@@ -536,6 +536,9 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not DELETE listing path in origin '
                 'db: %s %s' % (cdn_list_path, list_resp.status_int))
 
+        # Return 404 if container didn't exist
+        if resp.status_int == 404 and list_resp.status_int == 404:
+            return HTTPNotFound(request=req)
         return HTTPNoContent(request=req)
 
     def origin_db_head(self, env, req):
