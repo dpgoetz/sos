@@ -706,9 +706,7 @@ class OriginServer(object):
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
         """
-        if 'HTTP_HOST' not in env:
-            return self.app(env, start_response)
-        host = env['HTTP_HOST'].split(':')[0]
+        host = env.get('HTTP_HOST', '').split(':')[0]
         try:
             handler = None
             if host in self.origin_db_hosts:
