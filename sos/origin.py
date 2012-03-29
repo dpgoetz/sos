@@ -102,14 +102,17 @@ class OriginBase(object):
     Base class for Origin Server
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger):
         self.app = app
         self.conf = conf
+        self.logger = logger
         self.hash_suffix = conf.get('hash_path_suffix')
         self.origin_account = conf.get('origin_account', '.origin')
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
         self.token_length = int(self.conf.get('hmac_token_length', 30))
+        self.log_access_requests = conf.get('log_access_requests', 't') in \
+                                   TRUE_VALUES
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -157,8 +160,7 @@ class OriginBase(object):
 
                 return HashData.create_from_json(resp.body)
             except ValueError:
-                logger = get_logger(self.conf, log_route='origin_server')
-                logger.warn('Invalid HashData json: %s' % cdn_obj_path)
+                self.logger.warn('Invalid HashData json: %s' % cdn_obj_path)
         if resp.status_int == 404:
             if memcache_client:
                 # only memcache for 30 secs in case adding container to swift
@@ -204,8 +206,8 @@ class OriginBase(object):
 
 class AdminHandler(OriginBase):
 
-    def __init__(self, app, conf):
-        OriginBase.__init__(self, app, conf)
+    def __init__(self, app, conf, logger):
+        OriginBase.__init__(self, app, conf, logger)
         self.admin_key = conf.get('origin_admin_key')
 
     def is_origin_admin(self, req):
@@ -256,9 +258,9 @@ class AdminHandler(OriginBase):
 
 class CdnHandler(OriginBase):
 
-    def __init__(self, app, conf):
-        OriginBase.__init__(self, app, conf)
-        self.logger = get_logger(conf, log_route='origin_cdn')
+    def __init__(self, app, conf, logger):
+        OriginBase.__init__(self, app, conf, logger)
+        self.logger = logger
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
                                               10 * 1024 ** 3))
         self.allowed_origin_remote_ips = []
@@ -357,8 +359,9 @@ class CdnHandler(OriginBase):
                 cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
 
                 return cdn_resp
-            self.logger.exception('Unexpected response from Swift: %s, %s' %
-                                  (resp.status, cdn_obj_path))
+            if resp.status_int != 404:
+                self.logger.exception('Unexpected response from '
+                    'Swift: %s, %s' % (resp.status, cdn_obj_path))
         return HTTPNotFound(request=req,
                             headers=self._getCacheHeaders(CACHE_404))
 
@@ -368,10 +371,10 @@ class OriginDbHandler(OriginBase):
     Origin server for public containers
     """
 
-    def __init__(self, app, conf):
-        OriginBase.__init__(self, app, conf)
+    def __init__(self, app, conf, logger):
+        OriginBase.__init__(self, app, conf, logger)
         self.conf = conf
-        self.logger = get_logger(conf, log_route='origin_db')
+        self.logger = logger
         self.min_ttl = int(conf.get('min_ttl', '900'))
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
@@ -682,6 +685,7 @@ class OriginServer(object):
 
     def __init__(self, app, conf):
         self.app = app
+        self.logger = get_logger(conf, log_route='sos-python')
         self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [host for host in
@@ -690,6 +694,8 @@ class OriginServer(object):
             self.conf.get('origin_cdn_host_suffixes', '').split(',') if host]
         if not self.origin_cdn_host_suffixes:
             raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
+        self.log_access_requests = \
+            self.conf.get('log_access_requests', 't') in TRUE_VALUES
 
     def __call__(self, env, start_response):
         """
@@ -706,33 +712,71 @@ class OriginServer(object):
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
         """
+        env['sos.start_time'] = time()
         host = env.get('HTTP_HOST', '').split(':')[0]
         try:
             handler = None
             if host in self.origin_db_hosts:
-                handler = OriginDbHandler(self.app, self.conf)
+                handler = OriginDbHandler(self.app, self.conf, self.logger)
             for cdn_host_suffix in self.origin_cdn_host_suffixes:
                 if host.endswith(cdn_host_suffix):
-                    handler = CdnHandler(self.app, self.conf)
+                    handler = CdnHandler(self.app, self.conf, self.logger)
                     break
             if env['PATH_INFO'].startswith(self.origin_prefix):
-                handler = AdminHandler(self.app, self.conf)
+                handler = AdminHandler(self.app, self.conf, self.logger)
             if handler:
                 req = Request(env)
                 if not check_utf8(req.path_info):
                     return HTTPPreconditionFailed(
                         request=req, body='Invalid UTF8')(env, start_response)
 
-                return handler.handle_request(env, req)(env, start_response)
+                resp = handler.handle_request(env, req)
+                self._log_request(env, resp.status_int)
+                return resp(env, start_response)
+
         except InvalidConfiguration, e:
-            logger = get_logger(self.conf, log_route='origin_server')
-            logger.exception(e)
+            self.logger.exception(e)
             return HTTPInternalServerError(e)(env, start_response)
         except OriginRequestNotAllowed, e:
-            logger = get_logger(self.conf, log_route='origin_server')
-            logger.debug(e)
+            self.logger.debug(e)
         return self.app(env, start_response)
 
+    def _log_request(self, env, status_int):
+        """
+        Logs requests as they were made to SOS.  Will include original
+        hostname and path.  Will include the status of the response but
+        will not include the bytes transferred.  For that you must look at
+        the swift proxy logs which you can reference with the transaction id.
+        """
+        if not self.log_access_requests:
+            return
+        trans_time = '%.4f' % (time() -
+                               env.get('sos.start_time', time()))
+        the_request = quote(unquote(env['PATH_INFO']))
+        if env.get('QUERY_STRING'):
+            the_request = the_request + '?' + env['QUERY_STRING']
+        # remote user for zeus
+        client = env.get('HTTP_X_CLUSTER_CLIENT_IP')
+        if not client and 'HTTP_X_FORWARDED_FOR' in env:
+            # remote user for other lbs
+            client = env['HTTP_X_FORWARDED_FOR'].split(',')[0].strip()
+        self.logger.info(' '.join(quote(str(x)) for x in (
+            client or '-',
+            env.get('REMOTE_ADDR', '-'),
+            strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
+            env['REQUEST_METHOD'],
+            the_request,
+            env['SERVER_PROTOCOL'],
+            status_int,
+            env.get('HTTP_REFERER', '-'),
+            env.get('HTTP_USER_AGENT', '-'),
+            env.get('HTTP_X_AUTH_TOKEN', '-'),
+            '-',
+            '-',
+            env.get('HTTP_ETAG', '-'),
+            env.get('swift.trans_id', '-'),
+            '-',
+            trans_time)))
 
 def filter_factory(global_conf, **local_conf):
     """:returns: a WSGI filter app for use with paste.deploy."""

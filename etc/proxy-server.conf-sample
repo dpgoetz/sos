@@ -5,4 +5,6 @@ pipeline = healthcheck cache tempauth sos proxy-server
 [filter:sos]
 use = egg:sos#sos
 sos_conf = /etc/swift/sos.conf
-
+set log_name = python-sos
+set log_facility = LOG_LOCAL6
+set log_level = INFO

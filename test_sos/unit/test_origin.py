@@ -183,7 +183,7 @@ class TestOriginBase(unittest.TestCase):
 
     def setUp(self):
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
-        self.origin_base = origin.OriginBase(FakeApp(), conf)
+        self.origin_base = origin.OriginBase(FakeApp(), conf, FakeLogger())
 
     def test_memcaching_not_found(self):
         memcache = FakeMemcache()
@@ -220,30 +220,30 @@ class TestCdnHandler(unittest.TestCase):
 
     def setUp(self):
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
-        self.cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        self.cdn_handler = origin.CdnHandler(FakeApp(), conf, FakeLogger())
 
     def test_allowed_origin_remote_ips_conf(self):
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
         if 'allowed_origin_remote_ips' in conf:
             del conf['allowed_origin_remote_ips']
-        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        cdn_handler = origin.CdnHandler(FakeApp(), conf, FakeLogger())
         self.assertEquals(cdn_handler.allowed_origin_remote_ips, [])
 
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
         conf['allowed_origin_remote_ips'] = '1.2.3.4'
-        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        cdn_handler = origin.CdnHandler(FakeApp(), conf, FakeLogger())
         self.assertEquals(cdn_handler.allowed_origin_remote_ips, ['1.2.3.4'])
 
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
         conf['allowed_origin_remote_ips'] = ', , 1.2.3.4, 5.6.7.8 , ,'
-        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        cdn_handler = origin.CdnHandler(FakeApp(), conf, FakeLogger())
         self.assertEquals(cdn_handler.allowed_origin_remote_ips,
                           ['1.2.3.4', '5.6.7.8'])
 
     def test_reject_non_allowed_origin_remote_ips(self):
         conf = origin.OriginServer._translate_conf({'sos_conf': FakeConf()})
         conf['allowed_origin_remote_ips'] = '1.2.3.4'
-        cdn_handler = origin.CdnHandler(FakeApp(), conf)
+        cdn_handler = origin.CdnHandler(FakeApp(), conf, FakeLogger())
         env = {'REQUEST_METHOD': 'HEAD'}
         req = Request.blank('/test', environ=env)
         exc = None

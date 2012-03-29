@@ -16,6 +16,7 @@ hash_path_suffix = sos_suffix
 #max_cdn_file_size = 10737418240
 # Enable DELETE method
 #delete_enabled = true
+#log_access_requests = true
 # number of .hash containers used to keep track of cdn hashes. This
 # will split the cdn hashes between many containers to distribute the load.
 # This number CAN NEVER CHANGE after initial prep.

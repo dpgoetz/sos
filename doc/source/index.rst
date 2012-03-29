@@ -60,6 +60,17 @@ CDN enabled the container:
 Make origin request:
 ``curl http://127.0.0.1:8080/file.html -H 'Host: c0cd095b4ec76c09a6549995abb62558.r56.origin_cdn.com'``
 
+Setting up Logging
+------------------
+If you want to add separate logging for SOS edit your rsyslog conf to add a
+new section.
+
+#. Edit /etc/rsyslog.d/10-swift.conf::
+
+    local6.*;local6.!notice /var/log/swift/sos.log
+    local6.notice           /var/log/swift/sos.error
+    local6.*                ~
+
 Building Packages
 -----------------
 
