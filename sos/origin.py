@@ -765,6 +765,7 @@ class OriginServer(object):
             env.get('REMOTE_ADDR', '-'),
             strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
             env['REQUEST_METHOD'],
+            env.get('HTTP_HOST', '-'),
             the_request,
             env['SERVER_PROTOCOL'],
             status_int,
