@@ -772,11 +772,8 @@ class OriginServer(object):
             env.get('HTTP_REFERER', '-'),
             env.get('HTTP_USER_AGENT', '-'),
             env.get('HTTP_X_AUTH_TOKEN', '-'),
-            '-',
-            '-',
             env.get('HTTP_ETAG', '-'),
             env.get('swift.trans_id', '-'),
-            '-',
             trans_time)))
 
 def filter_factory(global_conf, **local_conf):
