@@ -62,8 +62,8 @@ Make origin request:
 
 Setting up Logging
 ------------------
-If you want to add separate logging for SOS edit your rsyslog conf to add a
-new section.
+If you want to add separate logging for SOS in a SAIO edit your rsyslog conf
+to add a new section.
 
 #. Edit /etc/rsyslog.d/10-swift.conf::
 
