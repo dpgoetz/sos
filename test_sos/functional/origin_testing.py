@@ -6,6 +6,7 @@ except ImportError:
 import unittest
 from nose import SkipTest
 from uuid import uuid4
+from urllib import quote
 import datetime
 from webob import Response
 from swift.common.utils import urlparse
@@ -195,9 +196,19 @@ class TestOrigin(unittest.TestCase):
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
+        def head_sos(url, token, parsed, conn, cont):
+            conn.request('HEAD',
+                parsed.path + '/' + cont, '',
+                self._db_headers({'X-Auth-Token': token}))
+            return check_response(conn)
+
         conts = [uuid4().hex for i in xrange(5)]
         conts.extend(['x' + uuid4().hex for i in xrange(5)])
+
+        unitest = u'test \u2661'
+        conts.append(unitest)
         for cont in conts:
+            cont = quote(cont.encode('utf8'))
             self.conts_to_delete.append(cont)
             if cont.startswith('x'):
                 resp = retry(put_sos, cont, {'x-cdn-enabled': 'false'})
@@ -206,13 +217,17 @@ class TestOrigin(unittest.TestCase):
             resp.read()
             self.assertEquals(resp.status, 201)
 
+        head_resp = retry(head_sos, quote(unitest.encode('utf8')))
+        head_resp.read()
+        unitest_cdn_url = head_resp.getheader('x-cdn-uri')
+
         resp = retry(get_sos, '')
         body = resp.read()
         for cont in conts:
-            self.assert_(cont in body)
+            self.assert_(cont.encode('utf8') in body)
         resp = retry(get_sos, '', 'true')
         body = resp.read()
-        for cont in conts:
+        for cont in conts[:-1]:
             self.assertEquals(not cont.startswith('x'), cont in body)
         resp = retry(get_sos, '', 'false')
         body = resp.read()
@@ -224,11 +239,17 @@ class TestOrigin(unittest.TestCase):
         data = json.loads(body)
         resp_conts = [d['name'] for d in data]
         self.assertEquals(set(resp_conts), set(conts))
+        found_it = False
+        for data_dict in data:
+            if data_dict['name'] == unitest:
+                self.assertEquals(data_dict['cdn_uri'], unitest_cdn_url)
+                found_it = True
+        self.assert_(found_it)
 
         resp = retry(get_sos, 'xml')
         body = resp.read()
         for cont in conts:
-            self.assert_('<name>%s</name>' % cont in body)
+            self.assert_('<name>%s</name>' % cont.encode('utf8') in body)
 
 if __name__ == '__main__':
     unittest.main()

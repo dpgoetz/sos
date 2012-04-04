@@ -393,6 +393,8 @@ class OriginDbHandler(OriginBase):
         container = listing_dict['name']
         cdn_data = listing_dict['content_type']
         hsh = self.hash_path(account, quote(container.encode('utf-8')))
+        # the quote and encode is needed because the listing_dict is the
+        # result of a swift json listing
         if not cdn_data.startswith('x-cdn/'):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
