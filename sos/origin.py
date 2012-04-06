@@ -413,10 +413,11 @@ class OriginDbHandler(OriginBase):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                 (account, container, cdn_data))
         if output_format not in ('json', 'xml'):
-            return container
+            return container.encode('utf8')
         cdn_url_dict = self.get_cdn_urls(hsh, 'GET',
                                           request_format_tag=output_format)
-        output_dict = {'name': container, 'cdn_enabled': cdn_enabled,
+        output_dict = {'name': container.encode('utf8'),
+                       'cdn_enabled': cdn_enabled,
                        'ttl': ttl, 'log_retention': log_ret}
         output_dict.update(cdn_url_dict)
         if output_format == 'xml':
@@ -456,7 +457,7 @@ class OriginDbHandler(OriginBase):
 
         def get_listings(marker):
             listing_path = '/v1/%s/%s?format=json&marker=%s' % \
-                           (self.origin_account, account, marker)
+                           (self.origin_account, account, quote(marker))
             # no limit in request because may have to filter on cdn_enabled
             resp = make_pre_authed_request(env, 'GET',
                 listing_path, agent='SwiftOrigin').get_response(self.app)
@@ -480,7 +481,7 @@ class OriginDbHandler(OriginBase):
                 if cont_listing and not listing_formatted:
                     # there were rows returned but none matched enabled_only-
                     # requery with new marker
-                    new_marker = cont_listing[-1]['name']
+                    new_marker = cont_listing[-1]['name'].encode('utf8')
                     return get_listings(new_marker)
             elif resp.status_int == 404:
                 raise OriginDbNotFound()
@@ -629,7 +630,7 @@ class OriginDbHandler(OriginBase):
                     'in origin db: %s %s' % (listing_cont_path, resp.status))
 
         cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
-                                          account, container)
+                                          account, unquote(container))
 
         cdn_list_resp = make_pre_authed_request(env, req.method, cdn_list_path,
             headers={'Content-Type':
