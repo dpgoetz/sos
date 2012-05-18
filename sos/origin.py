@@ -131,7 +131,7 @@ class OriginBase(object):
         A wrapper for swift's split_path that unquotes the path for
         you.  This will give you a str that is not dependent on the quote
         function you are using.
-        :returns: see swift.common.utils.split_path + unquoted
+        :returns: see swift.common.utils.split_path (but unquoted)
         :raises: InvalidUtf8 if path contains invalid UTF-8
         """
         unquoted_path = unquote(path)
@@ -351,10 +351,11 @@ class CdnHandler(OriginBase):
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
-            swift_path = quote('/v1/%s/%s/%s' % (
+            swift_path = quote('/v1/%s/%s/' % (
                 hash_data.account.encode('utf-8'),
-                hash_data.container.encode('utf-8'),
-                object_name or ''))
+                hash_data.container.encode('utf-8')))
+            if object_name:
+                swift_path += object_name
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(env, req.method, swift_path,
