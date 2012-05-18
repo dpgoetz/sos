@@ -44,19 +44,19 @@ class TestOrigin(unittest.TestCase):
 
         def delete_sos(url, token, parsed, conn, cont):
             conn.request('DELETE',
-                         '/'.join([parsed.path, cont]), '',
+                         quote('/'.join([parsed.path, cont])), '',
                          headers=self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
         def delete_swift(url, token, parsed, conn, cont):
             conn.request('DELETE',
-                '/'.join([parsed.path, cont]), '',
+                quote('/'.join([parsed.path, cont])), '',
                 headers={'X-Auth-Token': token})
             return check_response(conn)
 
         def delete_swift_obj(url, token, parsed, conn, cont, obj):
             conn.request('DELETE',
-                '/'.join([parsed.path, cont, obj]), '',
+                quote('/'.join([parsed.path, cont, obj])), '',
                 headers={'X-Auth-Token': token})
             return check_response(conn)
 
@@ -112,75 +112,80 @@ class TestOrigin(unittest.TestCase):
 
         def put_swift(url, token, parsed, conn, cont, obj):
             conn.request('PUT',
-                parsed.path + '/%s' % cont, '',
+                quote(parsed.path + '/%s' % cont), '',
                 {'X-Auth-Token': token})
             resp = check_response(conn)
             resp.read()
             conn.request('PUT',
-                parsed.path + '/%s/%s' % (cont, obj),
+                quote(parsed.path + '/%s/%s' % (cont, obj)),
                 'testbody', {'X-Auth-Token': token, 'Content-Length': 8})
             return check_response(conn)
 
         def put_sos(url, token, parsed, conn, cont):
             conn.request('PUT',
-                parsed.path + '/' + cont, '',
+                quote(parsed.path + '/' + cont), '',
                 self._db_headers({'X-Auth-Token': token,
                                   'X-TTL': 60 * 60 * 24}))
             return check_response(conn)
 
         def head_swift(url, token, parsed, conn, cont, obj):
             conn.request('HEAD',
-                parsed.path + '/%s/%s' % (cont, obj), '',
+                quote(parsed.path + '/%s/%s' % (cont, obj)), '',
                 {'X-Auth-Token': token})
             return check_response(conn)
 
         def head_sos(url, token, parsed, conn, cont):
             conn.request('HEAD',
-                parsed.path + '/' + cont, '',
+                quote(parsed.path + '/' + cont), '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
         def origin_get(url, token, parsed, conn, cdn_url, obj, headers={}):
             cdn_parsed = urlparse(cdn_url)
             conn.request('GET',
-                cdn_parsed.path + '/' + obj, '',
+                quote(cdn_parsed.path + '/' + obj), '',
                 self._origin_headers(headers, cdn_url))
             return check_response(conn)
 
-        cont = uuid4().hex
-        obj = uuid4().hex
-        self.conts_to_delete.append(cont)
-        self.swift_objs_to_delete.append((cont, obj))
-        resp = retry(put_sos, cont)
-        resp.read()
-        resp = retry(put_swift, cont, obj)
-        resp.read()
-        head_resp = retry(head_sos, cont)
-        head_resp.read()
-        self.assertEquals(head_resp.status, 204)
-        sw_head_resp = retry(head_swift, cont, obj)
-        sw_head_resp.read()
-        self.assertEquals(sw_head_resp.status // 100, 2)
-        for key in self.cdn_url_dict:
-            if 'ssl' in key.lower() != self.use_ssl:
-                continue
-            cdn_url = self._get_header(key, head_resp.getheaders())
-            resp = retry(origin_get, cdn_url=cdn_url, obj=obj)
-            body = resp.read()
-            self.assertEquals(resp.status // 100, 2)
-            self.assertEquals('testbody', body)
-            date_str_added = self._get_header('date', resp.getheaders())
-            date_added = datetime.datetime.strptime(date_str_added,
-                "%a, %d %b %Y %H:%M:%S GMT")
-            exp_expires = date_added + datetime.timedelta(1)
-            self.assertEquals(self._get_header('Expires', resp.getheaders()),
-                datetime.datetime.strftime(exp_expires,
-                                           "%a, %d %b %Y %H:%M:%S GMT"))
-            resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
-                         headers={'Range': 'bytes=2-4'})
-            body = resp.read()
-            self.assertEquals(resp.status // 100, 2)
-            self.assertEquals('stb', body)
+        cont_objs = [(uuid4().hex, uuid4().hex),
+                     (u'test cont \u2661', u'test obj \u2661'),]
+        for cont, obj in cont_objs:
+            if isinstance(cont, unicode):
+                cont = cont.encode('utf-8')
+            if isinstance(obj, unicode):
+                obj = obj.encode('utf-8')
+            self.conts_to_delete.append(cont)
+            self.swift_objs_to_delete.append((cont, obj))
+            resp = retry(put_sos, cont)
+            resp.read()
+            resp = retry(put_swift, cont, obj)
+            resp.read()
+            head_resp = retry(head_sos, cont)
+            head_resp.read()
+            self.assertEquals(head_resp.status, 204)
+            sw_head_resp = retry(head_swift, cont, obj)
+            sw_head_resp.read()
+            self.assertEquals(sw_head_resp.status // 100, 2)
+            for key in self.cdn_url_dict:
+                if 'ssl' in key.lower() != self.use_ssl:
+                    continue
+                cdn_url = self._get_header(key, head_resp.getheaders())
+                resp = retry(origin_get, cdn_url=cdn_url, obj=obj)
+                body = resp.read()
+                self.assertEquals(resp.status // 100, 2)
+                self.assertEquals('testbody', body)
+                date_str_added = self._get_header('date', resp.getheaders())
+                date_added = datetime.datetime.strptime(date_str_added,
+                    "%a, %d %b %Y %H:%M:%S GMT")
+                exp_expires = date_added + datetime.timedelta(1)
+                self.assertEquals(self._get_header('Expires', resp.getheaders()),
+                    datetime.datetime.strftime(exp_expires,
+                                               "%a, %d %b %Y %H:%M:%S GMT"))
+                resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
+                             headers={'Range': 'bytes=2-4'})
+                body = resp.read()
+                self.assertEquals(resp.status // 100, 2)
+                self.assertEquals('stb', body)
 
     def test_db_listing(self):
 
@@ -208,8 +213,10 @@ class TestOrigin(unittest.TestCase):
         unitest = u'test \u2661'
         conts.append(unitest)
         for cont in conts:
-            cont = quote(cont.encode('utf8'))
+            if isinstance(cont, unicode):
+                cont = cont.encode('utf-8')
             self.conts_to_delete.append(cont)
+            cont = quote(cont)
             if cont.startswith('x'):
                 resp = retry(put_sos, cont, {'x-cdn-enabled': 'false'})
             else:
