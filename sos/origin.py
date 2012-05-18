@@ -38,8 +38,6 @@ CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 MEMCACHE_TIMEOUT = 3600
-NUMBER_DNS_SHARDS = 100
-
 
 class InvalidContentType(Exception):
     pass
@@ -123,6 +121,7 @@ class OriginBase(object):
         self.token_length = int(self.conf.get('hmac_token_length', 30))
         self.log_access_requests = conf.get('log_access_requests', 't') in \
                                    TRUE_VALUES
+        self.number_dns_shards = int(conf.get('number_dns_shards', 100))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -161,7 +160,8 @@ class OriginBase(object):
     def get_cdn_data(self, env, cdn_obj_path):
         """
         Retrieves HashData object from memcache or by doing a GET
-        of the cdn_obj_path.
+        of the cdn_obj_path which should be what is returned from
+        get_hsh_obj_path
 
         :returns: HashData object.
         """
@@ -217,7 +217,8 @@ class OriginBase(object):
             raise InvalidConfiguration('Could not find format for: %s, %s'
                 % (request_type, request_format_tag))
 
-        url_vars = {'hash': hsh, 'hash_mod': int(hsh, 16) % NUMBER_DNS_SHARDS}
+        url_vars = {'hash': hsh,
+                    'hash_mod': int(hsh, 16) % self.number_dns_shards}
         cdn_urls = {}
         for key, url in format_section.items():
             cdn_urls[key] = (url % url_vars).rstrip('/')
@@ -430,8 +431,6 @@ class OriginDbHandler(OriginBase):
 
         cdn_data = listing_dict['content_type']
         hsh = self.hash_path(account, container)
-        # the quote and encode is needed because the listing_dict is the
-        # result of a swift json listing
         if not cdn_data.startswith('x-cdn/'):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                                      (account, container, cdn_data))
@@ -468,8 +467,9 @@ class OriginDbHandler(OriginBase):
         The only part of the path this pays attention to is the account.
         """
         try:
-            account = req.path.split('/')[2]
-        except IndexError:
+            vsn, account, junk = self.split_path(req.path, 2, 3,
+                                                 rest_with_last=True)
+        except ValueError:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
         if not account:

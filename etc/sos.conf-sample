@@ -15,6 +15,7 @@ hash_path_suffix = sos_suffix
 #min_ttl = 900
 #max_ttl = 3155692600
 #max_cdn_file_size = 10737418240
+#number_dns_shards = 100
 # Enable DELETE method
 #delete_enabled = true
 #log_access_requests = true
