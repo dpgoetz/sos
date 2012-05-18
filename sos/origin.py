@@ -39,10 +39,13 @@ CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 MEMCACHE_TIMEOUT = 3600
 NUMBER_DNS_SHARDS = 100
-DEFAULT_TTL = 295200
 
 
 class InvalidContentType(Exception):
+    pass
+
+
+class InvalidUtf8(Exception):
     pass
 
 
@@ -68,6 +71,13 @@ class HashData(object):
     """
 
     def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
+        try:
+            if not isinstance(account, unicode):
+                account = unicode(account, 'utf-8')
+            if not isinstance(container, unicode):
+                container = unicode(container, 'utf-8')
+        except UnicodeDecodeError:
+            raise InvalidUtf8()
         self.account = account
         self.container = container
         self.ttl = int(ttl)
@@ -116,8 +126,25 @@ class OriginBase(object):
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
+    def split_path(self, path, *args, **kwargs):
+        """
+        A wrapper for swift's split_path that unquotes the path for
+        you.  This will give you a str that is not dependent on the quote
+        function you are using.
+        :returns: see swift.common.utils.split_path + unquoted
+        :raises: InvalidUtf8 if path contains invalid UTF-8
+        """
+        unquoted_path = unquote(path)
+        if not check_utf8(path):
+            raise InvalidUtf8('Invalid UTF8')
+        return utils.split_path(unquoted_path, *args, **kwargs)
+
     def hash_path(self, account, container):
-        return md5('/%s/%s/%s' % (account, container.encode('utf-8'),
+        """
+        Takes unquoted str account, container and returns hash to be
+        used to store metadata object in SOS db.
+        """
+        return md5('/%s/%s/%s' % (account, container,
                                   self.hash_suffix)).hexdigest()
 
     def get_hsh_obj_path(self, hsh):
@@ -233,7 +260,7 @@ class AdminHandler(OriginBase):
         if not self.is_origin_admin(req):
             return HTTPForbidden(request=req)
         try:
-            vsn, account = utils.split_path(req.path, 2, 2)
+            vsn, account = self.split_path(req.path, 2, 2)
         except ValueError:
             return HTTPBadRequest(request=req)
         if account == '.prep':
@@ -324,8 +351,10 @@ class CdnHandler(OriginBase):
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
-            swift_path = '/v1/%s/%s/%s' % (hash_data.account,
-                hash_data.container, object_name or '')
+            swift_path = quote('/v1/%s/%s/%s' % (
+                hash_data.account.encode('utf-8'),
+                hash_data.container.encode('utf-8'),
+                object_name or ''))
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(env, req.method, swift_path,
@@ -379,6 +408,7 @@ class OriginDbHandler(OriginBase):
         self.max_ttl = int(conf.get('max_ttl', '3155692600'))
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
+        self.default_ttl = int(self.conf.get('default_ttl', 259200))
 
     def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
         return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
@@ -394,8 +424,11 @@ class OriginDbHandler(OriginBase):
         :raises: InvalidContentType
         """
         container = listing_dict['name']
+        if isinstance(container, unicode):
+            container = container.encode('utf-8')
+
         cdn_data = listing_dict['content_type']
-        hsh = self.hash_path(account, quote(container.encode('utf-8')))
+        hsh = self.hash_path(account, container)
         # the quote and encode is needed because the listing_dict is the
         # result of a swift json listing
         if not cdn_data.startswith('x-cdn/'):
@@ -413,10 +446,10 @@ class OriginDbHandler(OriginBase):
             raise InvalidContentType('Invalid Content-Type: %s/%s: %s' %
                 (account, container, cdn_data))
         if output_format not in ('json', 'xml'):
-            return container.encode('utf8')
+            return container
         cdn_url_dict = self.get_cdn_urls(hsh, 'GET',
                                           request_format_tag=output_format)
-        output_dict = {'name': container.encode('utf8'),
+        output_dict = {'name': container.decode('utf-8'),
                        'cdn_enabled': cdn_enabled,
                        'ttl': ttl, 'log_retention': log_ret}
         output_dict.update(cdn_url_dict)
@@ -456,8 +489,8 @@ class OriginDbHandler(OriginBase):
                 return HTTPBadRequest('Invalid limit, must be an integer')
 
         def get_listings(marker):
-            listing_path = '/v1/%s/%s?format=json&marker=%s' % \
-                           (self.origin_account, account, quote(marker))
+            listing_path = quote('/v1/%s/%s' % (self.origin_account, account))
+            listing_path += '?format=json&marker=' + quote(marker)
             # no limit in request because may have to filter on cdn_enabled
             resp = make_pre_authed_request(env, 'GET',
                 listing_path, agent='SwiftOrigin').get_response(self.app)
@@ -481,7 +514,9 @@ class OriginDbHandler(OriginBase):
                 if cont_listing and not listing_formatted:
                     # there were rows returned but none matched enabled_only-
                     # requery with new marker
-                    new_marker = cont_listing[-1]['name'].encode('utf8')
+                    new_marker = cont_listing[-1]['name']
+                    if isinstance(new_marker, unicode):
+                        new_marker = new_marker.encode('utf-8')
                     return get_listings(new_marker)
             elif resp.status_int == 404:
                 raise OriginDbNotFound()
@@ -512,7 +547,7 @@ class OriginDbHandler(OriginBase):
         if not self.delete_enabled:
             return HTTPMethodNotAllowed(request=req)
         try:
-            vsn, account, container = utils.split_path(req.path, 3, 3)
+            vsn, account, container = self.split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest('Invalid request. '
                 'URI format: /<api version>/<account>/<container>')
@@ -533,8 +568,8 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not DELETE .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, resp.status_int))
 
-        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
-                                          account, container)
+        cdn_list_path = quote('/v1/%s/%s/%s' % (self.origin_account,
+                                                account, container))
         list_resp = make_pre_authed_request(env, 'DELETE',
                 cdn_list_path, agent='SwiftOrigin').get_response(self.app)
 
@@ -552,7 +587,7 @@ class OriginDbHandler(OriginBase):
         Handles HEAD requests into Origin database
         """
         try:
-            vsn, account, container = utils.split_path(req.path, 3, 3)
+            vsn, account, container = self.split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)
@@ -572,12 +607,12 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         """
         try:
-            vsn, account, container = utils.split_path(req.path, 3, 3)
+            vsn, account, container = self.split_path(req.path, 3, 3)
         except ValueError, e:
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
-        ttl, cdn_enabled, logs_enabled = DEFAULT_TTL, True, False
+        ttl, cdn_enabled, logs_enabled = self.default_ttl, True, False
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
             ttl = hash_data.ttl
@@ -618,7 +653,7 @@ class OriginDbHandler(OriginBase):
             memcache_client.set(memcache_key, cdn_obj_data,
                 serialize=False, timeout=MEMCACHE_TIMEOUT)
 
-        listing_cont_path = '/v1/%s/%s' % (self.origin_account, account)
+        listing_cont_path = quote('/v1/%s/%s' % (self.origin_account, account))
         resp = make_pre_authed_request(env, 'HEAD',
             listing_cont_path, agent='SwiftOrigin').get_response(self.app)
         if resp.status_int == 404:
@@ -629,18 +664,18 @@ class OriginDbHandler(OriginBase):
                 raise OriginDbFailure('Could not create listing container '
                     'in origin db: %s %s' % (listing_cont_path, resp.status))
 
-        cdn_list_path = '/v1/%s/%s/%s' % (self.origin_account,
-                                          account, unquote(container))
+        cdn_list_path = quote('/v1/%s/%s/%s' % (self.origin_account,
+                                                account, container))
 
         cdn_list_resp = make_pre_authed_request(env, req.method, cdn_list_path,
             headers={'Content-Type':
                 self._gen_listing_content_type(cdn_enabled, ttl, logs_enabled),
                 'Content-Length': 0},
-                 agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin').get_response(self.app)
 
         if cdn_list_resp.status_int // 100 != 2:
             raise OriginDbFailure('Could not PUT/POST to cdn listing in '
-                'origin db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
+                'origin db: %s %s' % (cdn_obj_path, cdn_list_resp.status_int))
         # PUTs and POSTs have the headers as HEAD
         cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
@@ -732,10 +767,6 @@ class OriginServer(object):
                 handler = AdminHandler(self.app, self.conf, self.logger)
             if handler:
                 req = Request(env)
-                if not check_utf8(req.path_info):
-                    return HTTPPreconditionFailed(
-                        request=req, body='Invalid UTF8')(env, start_response)
-
                 resp = handler.handle_request(env, req)
                 self._log_request(env, resp.status_int)
                 return resp(env, start_response)
@@ -743,6 +774,9 @@ class OriginServer(object):
         except InvalidConfiguration, e:
             self.logger.exception(e)
             return HTTPInternalServerError(e)(env, start_response)
+        except InvalidUtf8:
+            return HTTPPreconditionFailed(
+                request=req, body='Invalid UTF8')(env, start_response)
         except OriginRequestNotAllowed, e:
             self.logger.debug(e)
         return self.app(env, start_response)
@@ -781,6 +815,7 @@ class OriginServer(object):
             env.get('HTTP_ETAG', '-'),
             env.get('swift.trans_id', '-'),
             trans_time)))
+
 
 def filter_factory(global_conf, **local_conf):
     """:returns: a WSGI filter app for use with paste.deploy."""

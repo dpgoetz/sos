@@ -319,9 +319,9 @@ class TestOrigin(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
 
     def test_bad_utf_8(self):
-        utf_path = '/origin/.prep/\xde'
-        resp = Request.blank(utf_path,
-            environ={'REQUEST_METHOD': 'PUT'}).get_response(self.test_origin)
+        utf_path = '/v1/AUTH_test/\xde'
+        resp = Request.blank(utf_path, environ={'REQUEST_METHOD': 'PUT',
+            'HTTP_HOST': 'origin_db.com'}).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 412)
 
     def test_admin_setup_failures(self):
