@@ -15,10 +15,9 @@
 from time import time, gmtime, strftime
 from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPUnauthorized, HTTPNoContent, HTTPAccepted, HTTPCreated, \
-    HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
-    HTTPInternalServerError, HTTPPreconditionFailed, HTTPNotModified, \
-    HTTPMovedPermanently
+    HTTPNoContent, HTTPAccepted, HTTPCreated, HTTPMethodNotAllowed, \
+    HTTPRequestRangeNotSatisfiable, HTTPInternalServerError, \
+    HTTPPreconditionFailed, HTTPNotModified, HTTPMovedPermanently
 from urllib import unquote, quote
 from urlparse import urlparse
 from hashlib import md5, sha1
@@ -38,6 +37,7 @@ CACHE_BAD_URL = 86400
 CACHE_404 = 30
 SWIFT_FETCH_SIZE = 100 * 1024
 MEMCACHE_TIMEOUT = 3600
+
 
 class InvalidContentType(Exception):
     pass
@@ -61,6 +61,59 @@ class InvalidConfiguration(Exception):
 
 class OriginRequestNotAllowed(Exception):
     pass
+
+
+def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
+    """
+    This is a copy/paste of swift.common.utils.split_path.  I will
+    probably be adding the unquote into swift's version soon and this
+    will prevent dependencies on that.
+    Validate and split the given HTTP request path.
+
+    **Examples**::
+
+        ['a'] = split_path('/a')
+        ['a', None] = split_path('/a', 1, 2)
+        ['a', 'c'] = split_path('/a/c', 1, 2)
+        ['a', 'c', 'o/r'] = split_path('/a/c/o/r', 1, 3, True)
+
+    :param path: HTTP Request path to be split
+    :param minsegs: Minimum number of segments to be extracted
+    :param maxsegs: Maximum number of segments to be extracted
+    :param rest_with_last: If True, trailing data will be returned as part
+                           of last segment.  If False, and there is
+                           trailing data, raises ValueError.
+    :returns: list of segments with a length of maxsegs (non-existant
+              segments will return as None)
+    :raises: ValueError if given an invalid path
+    :raises: InvalidUtf8 if path contains invalid UTF-8
+    """
+    path = unquote(path)
+    if not check_utf8(path):
+        raise InvalidUtf8('Invalid UTF8')
+    if not maxsegs:
+        maxsegs = minsegs
+    if minsegs > maxsegs:
+        raise ValueError('minsegs > maxsegs: %d > %d' % (minsegs, maxsegs))
+    if rest_with_last:
+        segs = path.split('/', maxsegs)
+        minsegs += 1
+        maxsegs += 1
+        count = len(segs)
+        if segs[0] or count < minsegs or count > maxsegs or \
+           '' in segs[1:minsegs]:
+            raise ValueError('Invalid path: %s' % quote(path))
+    else:
+        minsegs += 1
+        maxsegs += 1
+        segs = path.split('/', maxsegs)
+        count = len(segs)
+        if segs[0] or count < minsegs or count > maxsegs + 1 or \
+           '' in segs[1:minsegs] or (count == maxsegs + 1 and segs[maxsegs]):
+            raise ValueError('Invalid path: %s' % quote(path))
+    segs = segs[1:maxsegs]
+    segs.extend([None] * (maxsegs - 1 - len(segs)))
+    return segs
 
 
 class HashData(object):
@@ -124,19 +177,6 @@ class OriginBase(object):
         self.number_dns_shards = int(conf.get('number_dns_shards', 100))
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
-
-    def split_path(self, path, *args, **kwargs):
-        """
-        A wrapper for swift's split_path that unquotes the path for
-        you.  This will give you a str that is not dependent on the quote
-        function you are using.
-        :returns: see swift.common.utils.split_path (but unquoted)
-        :raises: InvalidUtf8 if path contains invalid UTF-8
-        """
-        unquoted_path = unquote(path)
-        if not check_utf8(path):
-            raise InvalidUtf8('Invalid UTF8')
-        return utils.split_path(unquoted_path, *args, **kwargs)
 
     def hash_path(self, account, container):
         """
@@ -261,7 +301,7 @@ class AdminHandler(OriginBase):
         if not self.is_origin_admin(req):
             return HTTPForbidden(request=req)
         try:
-            vsn, account = self.split_path(req.path, 2, 2)
+            vsn, account = split_path(req.path, 2, 2)
         except ValueError:
             return HTTPBadRequest(request=req)
         if account == '.prep':
@@ -467,7 +507,7 @@ class OriginDbHandler(OriginBase):
         The only part of the path this pays attention to is the account.
         """
         try:
-            vsn, account, junk = self.split_path(req.path, 2, 3,
+            vsn, account, junk = split_path(req.path, 2, 3,
                                                  rest_with_last=True)
         except ValueError:
             return HTTPBadRequest('Invalid request. '
@@ -548,7 +588,7 @@ class OriginDbHandler(OriginBase):
         if not self.delete_enabled:
             return HTTPMethodNotAllowed(request=req)
         try:
-            vsn, account, container = self.split_path(req.path, 3, 3)
+            vsn, account, container = split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest('Invalid request. '
                 'URI format: /<api version>/<account>/<container>')
@@ -588,7 +628,7 @@ class OriginDbHandler(OriginBase):
         Handles HEAD requests into Origin database
         """
         try:
-            vsn, account, container = self.split_path(req.path, 3, 3)
+            vsn, account, container = split_path(req.path, 3, 3)
         except ValueError:
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)
@@ -608,7 +648,7 @@ class OriginDbHandler(OriginBase):
         Handles PUTs and POSTs into Origin database
         """
         try:
-            vsn, account, container = self.split_path(req.path, 3, 3)
+            vsn, account, container = split_path(req.path, 3, 3)
         except ValueError, e:
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)

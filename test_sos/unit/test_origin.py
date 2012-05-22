@@ -853,11 +853,9 @@ hash_path_suffix = testing
 
         def fake_split(*args, **kwargs):
             raise ValueError('Testing')
-        was_split = utils.split_path
+        was_split = origin.split_path
         try:
-            utils.split_path = fake_split
-            from swift.common.utils import split_path
-            utils.split_path = fake_split
+            origin.split_path = fake_split
             self.test_origin.app = FakeApp(iter([('404 Not Found', {}, '')]))
             resp = Request.blank('/origin/.prep',
                 environ={'REQUEST_METHOD': 'POST'},
@@ -874,7 +872,7 @@ hash_path_suffix = testing
                 self.test_origin)
             self.assertEquals(resp.status_int, 400)
         finally:
-            utils.split_path = was_split
+            origin.split_path = was_split
 
     def test_origin_db_get_xml(self):
         listing_data = json.dumps([
