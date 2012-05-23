@@ -1,2 +1,4 @@
+sos (1.0.6)
+    - Changed how metadata is stored and how hashes are generated.  This is a non backwards compatible change.  Prevents dependency on how urls are quoted in generating hashes and simplifies json metadata.
 sos (1.0.4)
     - initial release of SOS
