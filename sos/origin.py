@@ -402,37 +402,49 @@ class CdnHandler(OriginBase):
             resp = make_pre_authed_request(env, req.method, swift_path,
                 headers=headers, agent='SwiftOrigin').get_response(self.app)
             if resp.status_int == 301 and 'Location' in resp.headers:
-                resp_headers = self._getCacheHeaders(hash_data.ttl)
-                resp_headers['Location'] = resp.headers['Location']
-                return HTTPMovedPermanently(headers=resp_headers)
+                loc_parsed = urlparse(resp.headers['Location'])
+                acc_cont_path = '/v1/%s/%s' % (
+                    hash_data.account.encode('utf-8'),
+                    hash_data.container.encode('utf-8'))
+                if loc_parsed.path.startswith(acc_cont_path):
+                    sos_loc = '%s://%s%s' % (loc_parsed.scheme,
+                        loc_parsed.hostname,
+                        loc_parsed.path[len(acc_cont_path):])
+                    resp = HTTPMovedPermanently(location=sos_loc,
+                        headers=self._getCacheHeaders(hash_data.ttl))
+                    return resp
+                else:
+                    self.logger.exception('Unexpected Location header '
+                        'returned.  %s does not begin with expected '
+                        'path: %s' % (loc_parsed.geturl(), acc_cont_path))
+                    return HTTPInternalServerError('Unexpected Relocation')
             if resp.status_int == 304:
                 return HTTPNotModified(request=req,
                     headers=self._getCacheHeaders(hash_data.ttl))
             if resp.status_int == 416:
                 return HTTPRequestRangeNotSatisfiable(request=req,
                     headers=self._getCacheHeaders(CACHE_404))
-            if resp.status_int in (200, 206):
+            if resp.status_int in (200, 206, 404):
                 if resp.content_length > self.max_cdn_file_size:
                     return HTTPBadRequest(request=req,
                         headers=self._getCacheHeaders(CACHE_404))
                 cdn_resp = Response(request=req, app_iter=resp.app_iter)
                 cdn_resp.status = resp.status_int
-                cdn_resp.last_modified = resp.last_modified
-                cdn_resp.etag = resp.etag
-                cdn_resp.content_length = resp.content_length
                 for header in ('Content-Range', 'Content-Encoding',
                                'Content-Disposition', 'Accept-Ranges',
-                               'Content-Type'):
+                               'Content-Type', 'Last-Modified', 'Etag',
+                               'Content-Length'):
                     header_val = resp.headers.get(header)
                     if header_val:
                         cdn_resp.headers[header] = header_val
-
-                cdn_resp.headers.update(self._getCacheHeaders(hash_data.ttl))
-
+                if resp.status_int == 404:
+                    cdn_resp.headers.update(self._getCacheHeaders(CACHE_404))
+                else:
+                    cdn_resp.headers.update(
+                        self._getCacheHeaders(hash_data.ttl))
                 return cdn_resp
-            if resp.status_int != 404:
-                self.logger.exception('Unexpected response from '
-                    'Swift: %s, %s' % (resp.status, cdn_obj_path))
+            self.logger.exception('Unexpected response from '
+                'Swift: %s, %s' % (resp.status, swift_path))
         return HTTPNotFound(request=req,
                             headers=self._getCacheHeaders(CACHE_404))
 
