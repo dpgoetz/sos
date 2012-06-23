@@ -1,0 +1,19 @@
+sos (1.0.7) lucid; urgency=low
+
+  * Changes for staticweb support.
+
+ -- Marcelo Martins <btorch@gmail.com>  Sat, 23 Jun 2012 17:24:01 +0000
+
+sos (1.0.6) lucid; urgency=low
+
+  * Changed how metadata is stored and how hashes are generated.
+    This is a non backwards compatible change. Prevents dependency
+    on how urls are quoted in generating hashes and simplifies json metadata.
+
+ -- Marcelo Martins <btorch@gmail.com>  Sat, 23 Jun 2012 16:24:01 +0000
+
+sos (1.0.4) UNRELEASED; urgency=low
+ 
+  * Initial release of SOS
+ 
+ -- Marcelo Martins <btorch@gmail.com>  Sat, 23 Jun 2012 16:24:01 +0000
