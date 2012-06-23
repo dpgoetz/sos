@@ -1,9 +1,0 @@
-Document: python-sos-doc
-Title: Python SOS Documentation
-Author: OpenStack
-Abstract: Sphinx documentation for SOS 
-Section: Network/File Transfer
-
-Format: HTML
-Index: /usr/share/doc/python-sos-doc/html/index.html
-Files: /usr/share/doc/python-sos-doc/html/*
