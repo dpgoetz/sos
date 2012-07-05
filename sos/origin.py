@@ -804,18 +804,22 @@ class OriginServer(object):
         host = env.get('HTTP_HOST', '').split(':')[0]
         try:
             handler = None
+            request_type = 'SOS_LOG'
             if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf, self.logger)
+                request_type = 'SOS_DB'
             for cdn_host_suffix in self.origin_cdn_host_suffixes:
                 if host.endswith(cdn_host_suffix):
                     handler = CdnHandler(self.app, self.conf, self.logger)
+                    request_type = 'SOS_ORIGIN'
                     break
             if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf, self.logger)
+                request_type = 'SOS_ADMIN'
             if handler:
                 req = Request(env)
                 resp = handler.handle_request(env, req)
-                self._log_request(env, resp.status_int)
+                self._log_request(env, resp.status_int, request_type)
                 return resp(env, start_response)
 
         except InvalidConfiguration, e:
@@ -828,7 +832,7 @@ class OriginServer(object):
             self.logger.debug(e)
         return self.app(env, start_response)
 
-    def _log_request(self, env, status_int):
+    def _log_request(self, env, status_int, request_type):
         """
         Logs requests as they were made to SOS.  Will include original
         hostname and path.  Will include the status of the response but
@@ -851,6 +855,7 @@ class OriginServer(object):
             client or '-',
             env.get('REMOTE_ADDR', '-'),
             strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
+            request_type,
             env['REQUEST_METHOD'],
             env.get('HTTP_HOST', '-'),
             the_request,
