@@ -776,10 +776,11 @@ class OriginServer(object):
         self.logger = get_logger(conf, log_route='sos-python')
         self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
-        self.origin_db_hosts = [host for host in
-            self.conf.get('origin_db_hosts', '').split(',') if host]
-        self.origin_cdn_host_suffixes = [host for host in
-            self.conf.get('origin_cdn_host_suffixes', '').split(',') if host]
+        self.origin_db_hosts = [host.strip() for host in
+            self.conf.get('origin_db_hosts', '').split(',') if host.strip()]
+        self.origin_cdn_host_suffixes = [host.strip() for host in
+            self.conf.get('origin_cdn_host_suffixes', '').split(',')
+            if host.strip()]
         if not self.origin_cdn_host_suffixes:
             raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
         self.log_access_requests = \
