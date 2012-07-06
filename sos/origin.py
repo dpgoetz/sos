@@ -437,8 +437,9 @@ class CdnHandler(OriginBase):
                     cdn_resp.headers.update(
                         self._getCacheHeaders(hash_data.ttl))
                 return cdn_resp
-            self.logger.exception('Unexpected response from '
-                'Swift: %s, %s' % (resp.status, swift_path))
+            self.logger.error('Unexpected response from '
+                'Swift: %s, %s: %s' % (resp.status, swift_path,
+                                       resp.body[:40]))
         return HTTPNotFound(request=req,
                             headers=self._getCacheHeaders(CACHE_404))
 
