@@ -424,19 +424,13 @@ class CdnHandler(OriginBase):
             if resp.status_int == 416:
                 return HTTPRequestRangeNotSatisfiable(request=req,
                     headers=self._getCacheHeaders(CACHE_404))
-            if resp.status_int in (200, 206, 404):
+            if resp.status_int // 100 == 2 or resp.status_int == 404:
                 if resp.content_length > self.max_cdn_file_size:
                     return HTTPBadRequest(request=req,
                         headers=self._getCacheHeaders(CACHE_404))
                 cdn_resp = Response(request=req, app_iter=resp.app_iter)
                 cdn_resp.status = resp.status_int
-                for header in ('Content-Range', 'Content-Encoding',
-                               'Content-Disposition', 'Accept-Ranges',
-                               'Content-Type', 'Last-Modified', 'Etag',
-                               'Content-Length'):
-                    header_val = resp.headers.get(header)
-                    if header_val:
-                        cdn_resp.headers[header] = header_val
+                cdn_resp.headers.update(resp.headers)
                 if resp.status_int == 404:
                     cdn_resp.headers.update(self._getCacheHeaders(CACHE_404))
                 else:

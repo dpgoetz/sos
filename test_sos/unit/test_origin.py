@@ -996,8 +996,10 @@ hash_path_suffix = testing
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ('200 Ok', {}, 'Test obj body.',
-                lambda req: False if req.headers['if-modified-since'] ==
+            ('200 Ok', {'x-object-meta-test': 'hey',
+                        'Content-Length': len('Test obj body.')},
+             'Test obj body.',
+             lambda req: False if req.headers['if-modified-since'] ==
                 '2000-01-01' else 'Headers not kept')])) #call to get obj
         req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             headers={'if-modified-since': '2000-01-01'},
@@ -1005,6 +1007,8 @@ hash_path_suffix = testing
                      'swift.cdn_hash': 'abcd',
                      'swift.cdn_object_name': 'obj1.jpg'})
         resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.headers.get('x-object-meta-test'), 'hey')
+        self.assertEquals(resp.headers.get('Content-Length'), 14)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'Test obj body.')
 
