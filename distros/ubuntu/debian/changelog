@@ -1,3 +1,10 @@
+sos (1.0.8-1ubuntu~lucid) lucid; urgency=low
+
+  * Send all swift headers to SOS
+  * Also fixing the packaging revision scheme 
+
+ -- Marcelo Martins <btorch@gmail.com>  Wed, 11 Jul 2012 17:22:01 +0000
+
 sos (1.0.7) lucid; urgency=low
 
   * Changes for staticweb support.
