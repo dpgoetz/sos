@@ -29,9 +29,10 @@ class TestOrigin(unittest.TestCase):
     def setUp(self):
         if skip:
             raise SkipTest
-        self.db_host = sos_conf['sos'].get('origin_db_hosts')
+        self.db_host = sos_conf['sos'].get(
+            'origin_db_hosts').split(',')[0].strip()
         self.origin_host = sos_conf['sos'].get(
-                           'origin_cdn_host_suffixes').split(',')[0]
+                           'origin_cdn_host_suffixes').split(',')[0].strip()
         self.assert_(self.db_host)
         self.cdn_url_dict = sos_conf['outgoing_url_format']
         self.use_ssl = swift_test_auth.startswith('https')
