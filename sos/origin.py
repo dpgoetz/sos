@@ -63,6 +63,14 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
+class SosResponse(Response):
+    def _abs_headerlist(self, environ):
+        """Returns a headerlist, withOUT the Location header possibly
+        made absolute given the request environ.
+        """
+        return self.headerlist
+
+
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     """
     This is a copy/paste of swift.common.utils.split_path.  I will
@@ -407,11 +415,11 @@ class CdnHandler(OriginBase):
                     hash_data.account.encode('utf-8'),
                     hash_data.container.encode('utf-8'))
                 if loc_parsed.path.startswith(acc_cont_path):
-                    sos_loc = '%s://%s%s' % (loc_parsed.scheme,
-                        loc_parsed.hostname,
-                        loc_parsed.path[len(acc_cont_path):])
-                    resp = HTTPMovedPermanently(location=sos_loc,
+                    sos_loc = loc_parsed.path[len(acc_cont_path):]
+                    resp = SosResponse(
                         headers=self._getCacheHeaders(hash_data.ttl))
+                    resp.headers['Location'] = sos_loc
+                    resp.status = 301
                     return resp
                 else:
                     self.logger.exception('Unexpected Location header '
@@ -437,8 +445,9 @@ class CdnHandler(OriginBase):
                     cdn_resp.headers.update(
                         self._getCacheHeaders(hash_data.ttl))
                 return cdn_resp
-            self.logger.exception('Unexpected response from '
-                'Swift: %s, %s' % (resp.status, swift_path))
+            self.logger.error('Unexpected response from '
+                'Swift: %s, %s: %s' % (resp.status, swift_path,
+                                       resp.body[:40]))
         return HTTPNotFound(request=req,
                             headers=self._getCacheHeaders(CACHE_404))
 
@@ -587,7 +596,7 @@ class OriginDbHandler(OriginBase):
                 response_body = '\n'.join(listing_formatted) + '\n'
             return Response(body=response_body, headers=resp_headers)
         except OriginDbNotFound:
-            return HTTPNotFound(request=req)
+            return HTTPNoContent(request=req)
 
     def origin_db_delete(self, env, req):
         """ Handles DELETEs in the Origin database """
@@ -776,10 +785,11 @@ class OriginServer(object):
         self.logger = get_logger(conf, log_route='sos-python')
         self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
-        self.origin_db_hosts = [host for host in
-            self.conf.get('origin_db_hosts', '').split(',') if host]
-        self.origin_cdn_host_suffixes = [host for host in
-            self.conf.get('origin_cdn_host_suffixes', '').split(',') if host]
+        self.origin_db_hosts = [host.strip() for host in
+            self.conf.get('origin_db_hosts', '').split(',') if host.strip()]
+        self.origin_cdn_host_suffixes = [host.strip() for host in
+            self.conf.get('origin_cdn_host_suffixes', '').split(',')
+            if host.strip()]
         if not self.origin_cdn_host_suffixes:
             raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
         self.log_access_requests = \
@@ -804,18 +814,22 @@ class OriginServer(object):
         host = env.get('HTTP_HOST', '').split(':')[0]
         try:
             handler = None
+            request_type = 'SOS_LOG'
             if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf, self.logger)
+                request_type = 'SOS_DB'
             for cdn_host_suffix in self.origin_cdn_host_suffixes:
                 if host.endswith(cdn_host_suffix):
                     handler = CdnHandler(self.app, self.conf, self.logger)
+                    request_type = 'SOS_ORIGIN'
                     break
             if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf, self.logger)
+                request_type = 'SOS_ADMIN'
             if handler:
                 req = Request(env)
                 resp = handler.handle_request(env, req)
-                self._log_request(env, resp.status_int)
+                self._log_request(env, resp.status_int, request_type)
                 return resp(env, start_response)
 
         except InvalidConfiguration, e:
@@ -828,7 +842,7 @@ class OriginServer(object):
             self.logger.debug(e)
         return self.app(env, start_response)
 
-    def _log_request(self, env, status_int):
+    def _log_request(self, env, status_int, request_type):
         """
         Logs requests as they were made to SOS.  Will include original
         hostname and path.  Will include the status of the response but
@@ -851,6 +865,7 @@ class OriginServer(object):
             client or '-',
             env.get('REMOTE_ADDR', '-'),
             strftime('%d/%b/%Y/%H/%M/%S', gmtime()),
+            request_type,
             env['REQUEST_METHOD'],
             env.get('HTTP_HOST', '-'),
             the_request,
