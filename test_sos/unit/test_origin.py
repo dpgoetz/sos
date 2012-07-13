@@ -926,11 +926,13 @@ hash_path_suffix = testing
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ('301 Moved Permanently', {'Location': 'lala'}, '')])) #get obj
+            ('301 Moved Permanently',
+             {'Location': '/v1/acc/cont/subdir/'}, '')])) #get obj
         resp = Request.blank('http://1234.r34.origin_cdn.com:8080/subdir',
             environ={'REQUEST_METHOD': 'HEAD',
                      'swift.cdn_hash': 'abcd'}).get_response(self.test_origin)
         self.assertEquals(resp.status_int, 301)
+        self.assertEquals(resp.headers['Location'], '/subdir/')
 
     def test_cdn_get_no_content(self):
         prev_data = json.dumps({'account': 'acc', 'container': 'cont',

@@ -81,6 +81,21 @@ To build packages I've been using python-stdeb.
 cd into sos directory and run:
 ``python setup.py --command-packages=stdeb.command bdist_deb``
 
+Testing
+-------
+
+Unittests can be run from the sos directory with:
+``./.unittests``
+
+
+Functional tests can be run from the sos directory with:
+``./.functests``
+
+Functional tests use the same /etc/swift/func_test.conf as swift.  If
+you are going to use sos with swift's staticweb middleware add the following
+to the end of that file:
+
+``sos_static_web = true``
 
 Code-Generated Documentation
 ----------------------------

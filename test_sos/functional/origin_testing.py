@@ -9,10 +9,10 @@ from uuid import uuid4
 from urllib import quote
 import datetime
 from webob import Response
-from swift.common.utils import urlparse
+from swift.common.utils import urlparse, TRUE_VALUES
 
 from sos_testing import check_response, retry, skip, swift_test_user, \
-    swift_test_auth, sos_conf
+    swift_test_auth, sos_conf, conf
 
 
 class TestOrigin(unittest.TestCase):
@@ -38,6 +38,8 @@ class TestOrigin(unittest.TestCase):
         self.use_ssl = swift_test_auth.startswith('https')
         self.conts_to_delete = []
         self.swift_objs_to_delete = []
+        self.run_static_web_test_because_of_webob_hack = \
+            conf.get('sos_static_web') in TRUE_VALUES
 
     def tearDown(self):
         if skip:
@@ -258,6 +260,69 @@ class TestOrigin(unittest.TestCase):
         body = resp.read()
         for cont in conts:
             self.assert_('<name>%s</name>' % cont.encode('utf8') in body)
+
+    def test_origin_301(self):
+
+        if not self.run_static_web_test_because_of_webob_hack:
+            raise SkipTest
+
+        def put_swift(url, token, parsed, conn, cont):
+            conn.request('PUT',
+                quote(parsed.path + '/%s' % cont), '',
+                {'X-Auth-Token': token,
+                 'x-container-read': '.r:*',
+                 'x-container-meta-web-index': 'index.html'})
+            resp = check_response(conn)
+            resp.read()
+            conn.request('PUT',
+                quote(parsed.path + '/%s/hat/index.html' % (cont)),
+                'testbody', {'X-Auth-Token': token, 'Content-Length': 8})
+            resp = check_response(conn)
+            resp.read()
+
+        def put_sos(url, token, parsed, conn, cont):
+            conn.request('PUT',
+                quote(parsed.path + '/' + cont), '',
+                self._db_headers({'X-Auth-Token': token,
+                                  'X-TTL': 60 * 60 * 24}))
+            resp = check_response(conn)
+            resp.read()
+
+        def head_sos(url, token, parsed, conn, cont):
+            conn.request('HEAD',
+                quote(parsed.path + '/' + cont), '',
+                self._db_headers({'X-Auth-Token': token}))
+            return check_response(conn)
+
+        def origin_get(url, token, parsed, conn, cdn_url, obj, headers={}):
+            cdn_parsed = urlparse(cdn_url)
+            conn.request('GET',
+                quote(cdn_parsed.path + '/' + obj), '',
+                self._origin_headers(headers, cdn_url))
+            return check_response(conn)
+
+        cont = uuid4().hex
+        self.conts_to_delete.append(cont)
+        self.swift_objs_to_delete.append((cont, 'hat/index.html'))
+        retry(put_sos, cont)
+        retry(put_swift, cont)
+        head_resp = retry(head_sos, cont)
+        head_resp.read()
+        self.assertEquals(head_resp.status, 204)
+        for key in self.cdn_url_dict:
+            if 'ssl' in key.lower() != self.use_ssl:
+                continue
+            cdn_url = self._get_header(key, head_resp.getheaders())
+            resp = retry(origin_get, cdn_url=cdn_url, obj='hat/')
+            body = resp.read()
+            self.assertEquals(resp.status // 100, 2)
+            self.assertEquals('testbody', body)
+
+            resp = retry(origin_get, cdn_url=cdn_url, obj='hat')
+            body = resp.read()
+            self.assertEquals(resp.status, 301)
+            self.assertEquals(self._get_header('Location', resp.getheaders()),
+                              '/hat/')
 
 if __name__ == '__main__':
     unittest.main()
