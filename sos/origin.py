@@ -596,7 +596,7 @@ class OriginDbHandler(OriginBase):
                 response_body = '\n'.join(listing_formatted) + '\n'
             return Response(body=response_body, headers=resp_headers)
         except OriginDbNotFound:
-            return HTTPNotFound(request=req)
+            return HTTPNoContent(request=req)
 
     def origin_db_delete(self, env, req):
         """ Handles DELETEs in the Origin database """
