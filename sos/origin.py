@@ -63,6 +63,14 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
+class SosResponse(Response):
+    def _abs_headerlist(self, environ):
+        """Returns a headerlist, withOUT the Location header possibly
+        made absolute given the request environ.
+        """
+        return self.headerlist
+
+
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     """
     This is a copy/paste of swift.common.utils.split_path.  I will
@@ -407,11 +415,11 @@ class CdnHandler(OriginBase):
                     hash_data.account.encode('utf-8'),
                     hash_data.container.encode('utf-8'))
                 if loc_parsed.path.startswith(acc_cont_path):
-                    sos_loc = '%s://%s%s' % (loc_parsed.scheme,
-                        loc_parsed.hostname,
-                        loc_parsed.path[len(acc_cont_path):])
-                    resp = HTTPMovedPermanently(location=sos_loc,
+                    sos_loc = loc_parsed.path[len(acc_cont_path):]
+                    resp = SosResponse(
                         headers=self._getCacheHeaders(hash_data.ttl))
+                    resp.headers['Location'] = sos_loc
+                    resp.status = 301
                     return resp
                 else:
                     self.logger.exception('Unexpected Location header '
