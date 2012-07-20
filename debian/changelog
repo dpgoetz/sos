@@ -1,3 +1,12 @@
+sos (1.0.9-1ubuntu~lucid) lucid; urgency=low
+
+  * Stop sending full url for 301 Location headers
+  * Fix unit tests with multiple db_hosts
+  * Return 204s on new accounts instead of 404s
+  * Please check commit history on github for more details
+
+ -- Marcelo Martins <btorch@gmail.com>  Fri, 20 Jul 2012 16:00:01 +0000
+
 sos (1.0.8-1ubuntu~lucid) lucid; urgency=low
 
   * Send all swift headers to SOS
