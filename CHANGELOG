@@ -1,4 +1,20 @@
+sos (1.0.9)
+    - Strip spaces from config hosts
+    - Log as error so no extra traceback and give :40 of resp.body
+    - Stop sending full url for 301 Location headers. Just sending relative URI now.
+    - Fix unit tests with multiple db_hosts
+    - Return 204s on new accounts instead of 404s
+    - Added debian packaging files
+    - Adding tests for static web
+
+sos (1.0.8)
+    - Now sending all swift headers to SOS
+
+sos (1.0.7)
+    - Fixing SOS for staticweb
+
 sos (1.0.6)
     - Changed how metadata is stored and how hashes are generated.  This is a non backwards compatible change.  Prevents dependency on how urls are quoted in generating hashes and simplifies json metadata.
+
 sos (1.0.4)
     - initial release of SOS
