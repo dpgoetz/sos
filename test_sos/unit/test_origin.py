@@ -119,10 +119,11 @@ class FakeConn(object):
 
 class FakeMemcache(object):
 
-    def __init__(self, override_get=''):
+    def __init__(self, override_get='', raise_on_delete=True):
         self.store = {}
         self.timeouts = {}
         self.override_get = override_get
+        self.raise_on_delete = raise_on_delete
 
     def get(self, key):
         if self.override_get:
@@ -135,7 +136,8 @@ class FakeMemcache(object):
         return True
 
     def delete(self, key):
-        raise Exception('delete called')
+        if self.raise_on_delete:
+            raise Exception('delete called')
 
 
 class FakeLogger(object):
@@ -178,6 +180,12 @@ class TestHashData(unittest.TestCase):
         self.assertTrue(h.cdn_enabled)
         self.assertFalse(h.logs_enabled)
 
+    def test_equals(self):
+        l = origin.HashData('a', 'c', '123', True, False)
+        r = origin.HashData('a', 'c', '123', True, False)
+        q = origin.HashData('a', 'c', '123', False, False)
+        self.assertTrue(l == r)
+        self.assertTrue(l != q)
 
 class TestOriginBase(unittest.TestCase):
 
@@ -758,7 +766,7 @@ delete_enabled = true
         def mock_memcache(env):
             return FakeMemcache(override_get=json.dumps({'account': 'acc',
                 'container': 'cont', 'ttl': 5555, 'logs_enabled': True,
-                'cdn_enabled': False}))
+                'cdn_enabled': False}), raise_on_delete=False)
         was_memcache = utils.cache_from_env
         try:
             utils.cache_from_env = mock_memcache
@@ -769,6 +777,7 @@ delete_enabled = true
                 'http://origin_db.com:8080/v1/acc/cont',
                 environ={'REQUEST_METHOD': 'HEAD'})
             resp = req.get_response(self.test_origin)
+
             self.assertEquals(resp.status_int, 204)
             self.assertEquals(resp.headers['X-TTL'], 5555)
         finally:
@@ -779,7 +788,7 @@ delete_enabled = true
         def mock_memcache(env):
             fake_mem = FakeMemcache(override_get=json.dumps({'account': 'acc',
                 'container': 'cont', 'ttl': 5555, 'logs_enabled': True,
-                'cdn_enabled': False}))
+                'cdn_enabled': False}), raise_on_delete=False)
             def check_set(key, value, serialize=True, timeout=0):
                 data = json.loads(value)
                 if data['ttl'] != 5555:
