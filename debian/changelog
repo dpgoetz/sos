@@ -1,3 +1,9 @@
+sos (1.0.10) lucid; urgency=low
+
+  * Only PUT to metadata files on changes to CDN data.
+
+ -- David Goetz <dpgoetz@gmail.com>  Mon, 23 Jul 2012 13:09:58 -0700
+
 sos (1.0.9-1ubuntu~lucid) lucid; urgency=low
 
   * Stop sending full url for 301 Location headers
