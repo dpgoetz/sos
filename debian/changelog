@@ -1,4 +1,4 @@
-sos (1.0.10) lucid; urgency=low
+sos (1.0.10-1ubuntu~lucid) lucid; urgency=low
 
   * Only PUT to metadata files on changes to CDN data.
 
