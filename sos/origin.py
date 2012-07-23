@@ -152,6 +152,16 @@ class HashData(object):
     def __str__(self):
         return self.get_json_str()
 
+    def __eq__(self, other):
+        return (self.account == other.account and
+                self.container == other.container and
+                self.ttl == other.ttl and
+                self.logs_enabled == other.logs_enabled and
+                self.cdn_enabled == other.cdn_enabled)
+
+    def __ne__(self, other):
+        return not self == other
+
     @classmethod
     def create_from_json(cls, json_str):
         """
@@ -692,6 +702,15 @@ class OriginDbHandler(OriginBase):
                 TRUE_VALUES
         new_hash_data = HashData(account, container, ttl, cdn_enabled,
                                  logs_enabled)
+        if hash_data and hash_data == new_hash_data:
+            cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
+            return HTTPAccepted(request=req,
+                                headers=cdn_url_headers)
+        memcache_client = utils.cache_from_env(env)
+        memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
+        if memcache_client:
+            memcache_client.delete(memcache_key)
+
         cdn_obj_data = new_hash_data.get_json_str()
         cdn_obj_etag = md5(cdn_obj_data).hexdigest()
         # this is always a PUT because a POST needs to update the file
@@ -703,9 +722,7 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure('Could not PUT .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
 
-        memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
             memcache_client.set(memcache_key, cdn_obj_data,
                 serialize=False, timeout=MEMCACHE_TIMEOUT)
 
