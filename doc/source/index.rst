@@ -73,17 +73,14 @@ to add a new section.
 
 Building Packages
 -----------------
-There are a couple of ways to do so.
 
 #. With python-stdeb:: 
-
     To build packages
     ``sudo easy_install stdeb``
 
     cd into sos directory and run: ``python setup.py --command-packages=stdeb.command bdist_deb``
 
 #. With debuild::
-
     First install ``apt-get install build-essential devscripts dh-make``
 
     Rename the sos directory to sos-VERSION  
