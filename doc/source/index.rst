@@ -75,8 +75,7 @@ Building Packages
 -----------------
 
 1. Using python-stdeb: 
-    To build packages
-    ``sudo easy_install stdeb``
+    To build packages ``sudo easy_install stdeb``
 
     cd into sos directory and run: ``python setup.py --command-packages=stdeb.command bdist_deb``
 
