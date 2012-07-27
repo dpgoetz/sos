@@ -410,6 +410,12 @@ class CdnHandler(OriginBase):
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data and hash_data.cdn_enabled:
             # this is a cdn enabled container, proxy req to swift
+            if env.get('swift.cdn_authorize'):
+                auth_resp, ttl = env['swift.cdn_authorize'](env,
+                    hash_data.account.encode('utf-8'))
+                if auth_resp:
+                    return auth_resp(request=req,
+                        headers=self._getCacheHeaders(ttl))
             swift_path = quote('/v1/%s/%s/' % (
                 hash_data.account.encode('utf-8'),
                 hash_data.container.encode('utf-8')))
