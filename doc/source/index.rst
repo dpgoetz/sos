@@ -85,7 +85,7 @@ Building Packages
 
     Rename the sos directory to sos-VERSION  
 
-    Create the original tarball: ``tar --exclude="debian" -zcvf sos-VERSION.orig.tar.gz``
+    Create the original tarball: ``tar --exclude=debian -zcvf sos-VERSION.orig.tar.gz``
 
     Then cd into sos-VERSION directory and run ``debuild -us -uc``
 
