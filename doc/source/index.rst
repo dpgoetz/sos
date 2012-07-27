@@ -65,7 +65,7 @@ Setting up Logging
 If you want to add separate logging for SOS in a SAIO edit your rsyslog conf
 to add a new section.
 
-#. Edit /etc/rsyslog.d/10-swift.conf:: 
+#. Edit /etc/rsyslog.d/10-swift.conf::
 
     local6.*;local6.!notice /var/log/swift/sos.log
     local6.notice           /var/log/swift/sos.error
