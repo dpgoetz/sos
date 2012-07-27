@@ -74,7 +74,7 @@ to add a new section.
 Building Packages
 -----------------
 
-1.Using python-stdeb:: 
+1. Using python-stdeb:: 
     To build packages
     ``sudo easy_install stdeb``
 
