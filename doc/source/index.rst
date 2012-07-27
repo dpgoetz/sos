@@ -73,21 +73,24 @@ to add a new section.
 
 Building Packages
 -----------------
+There are a couple of ways to do so
 
 #. With python-stdeb::
+
     To build packages
         ``sudo easy_install stdeb``
 
     cd into sos directory and run: ``python setup.py --command-packages=stdeb.command bdist_deb``
 
 #. With debuild::
+
     First install ``apt-get install build-essential devscripts dh-make``
 
     Rename the sos directory to sos-VERSION  
 
-    Create the original tarball: `` tar --exclude="debian" -zcvf sos-VERSION.orig.tar.gz 
+    Create the original tarball: `` tar --exclude="debian" -zcvf sos-VERSION.orig.tar.gz ``
 
-    Then cdn into sos-VERSION directory and run ``debuild -us -uc``
+    Then cd into sos-VERSION directory and run ``debuild -us -uc``
 
     This will build the package without signing with your GPG key. 
     Keep in mind that it is a good idea to have your GPG key ready when building packages.
