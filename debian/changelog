@@ -1,4 +1,4 @@
-sos (1.1.0-2ubuntu~lucid) lucid; urgency=low
+sos (1.1.0-1ubuntu~lucid) lucid; urgency=low
 
   * Add a auth hook for denying accounts.
 
