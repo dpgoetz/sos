@@ -1,5 +1,10 @@
+sos (1.1.0)
+    - Added an auth hook for denying accounts 
+    - Added some debian packaging info under docs 
+
 sos (1.0.10)
     - Only PUT to metadata files on changes to CDN data.
+
 sos (1.0.9)
     - Strip spaces from config hosts
     - Log as error so no extra traceback and give :40 of resp.body
