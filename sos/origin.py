@@ -190,6 +190,8 @@ class OriginBase(object):
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
         self.token_length = int(self.conf.get('hmac_token_length', 30))
+        self.min_ttl = int(conf.get('min_ttl', 15 * 60))
+        self.max_ttl = int(conf.get('max_ttl', 365 * 24 * 60 * 60))
         self.log_access_requests = conf.get('log_access_requests', 't') in \
                                    TRUE_VALUES
         self.number_dns_shards = int(conf.get('number_dns_shards', 100))
@@ -362,6 +364,7 @@ class CdnHandler(OriginBase):
             self.cdn_regexes.append(regex)
 
     def _getCacheHeaders(self, ttl):
+        ttl = min(max(ttl, self.min_ttl), self.max_ttl)
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
                                     gmtime(time() + ttl)),
                 'Cache-Control': 'max-age:%d, public' % ttl}
@@ -477,8 +480,6 @@ class OriginDbHandler(OriginBase):
         OriginBase.__init__(self, app, conf, logger)
         self.conf = conf
         self.logger = logger
-        self.min_ttl = int(conf.get('min_ttl', '900'))
-        self.max_ttl = int(conf.get('max_ttl', '3155692600'))
         self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
             TRUE_VALUES
         self.default_ttl = int(self.conf.get('default_ttl', 259200))
@@ -697,9 +698,7 @@ class OriginDbHandler(OriginBase):
             ttl = int(req.headers.get('X-TTL', ttl))
         except ValueError:
             return HTTPBadRequest(_('Invalid X-TTL, must be integer'))
-        if ttl < self.min_ttl or ttl > self.max_ttl:
-            return HTTPBadRequest(_('Invalid X-TTL, must be between %(min)s '
-                'and %(max)s') % {'min': self.min_ttl, 'max': self.max_ttl})
+        ttl = min(max(ttl, self.min_ttl), self.max_ttl)
         if 'X-Log-Retention' in req.headers:
             logs_enabled = req.headers.get('X-Log-Retention').lower() in \
                 TRUE_VALUES
