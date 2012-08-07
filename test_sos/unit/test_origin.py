@@ -438,14 +438,6 @@ max_cdn_file_size = 0
         self.assertEquals(resp.status_int, 400)
         self.assertTrue('Invalid X-TTL, must be integer' in resp.body)
 
-        self.test_origin.app = FakeApp(iter(
-            [('200 Ok', {}, json.dumps(data))]))
-        resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
-            environ={'REQUEST_METHOD': 'POST'}, headers={'X-TTL': '1'},
-            ).get_response(self.test_origin)
-        self.assertEquals(resp.status_int, 400)
-        self.assertTrue('Invalid X-TTL, must be between' in resp.body)
-
     def test_origin_db_put(self):
         def test_put(req):
             check_hash = md5('/acc/cont/testing').hexdigest()
@@ -487,6 +479,25 @@ max_cdn_file_size = 0
             ('204 No Content', {}, '',
                 lambda req: False if json.loads(req.body)['ttl'] == 1234
                     else 'Defaults not kept'), # put to .hash file
+            ('404 Not Found', {}, ''), # HEAD call, see if create cont
+            ('204 No Content', {}, ''), # put create cont
+            ('204 No Content', {}, ''), # put to add obj to listing
+            ]))
+        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
+            environ={'REQUEST_METHOD': 'POST'})
+        resp = req.get_response(self.test_origin)
+        self.assertEquals(resp.status_int, 202)
+
+    def test_origin_db_post_min_ttl(self):
+        prev_data = json.dumps({'account': 'acc', 'container': 'cont',
+                'ttl': 12, 'logs_enabled': True,
+                'cdn_enabled': False})
+        data = {'account': 'acc', 'container': 'cont', 'cdn_enabled': 'true'}
+        self.test_origin.app = FakeApp(iter([
+            ('204 No Content', {}, prev_data), # call to _get_cdn_data
+            ('204 No Content', {}, '',
+                lambda req: False if json.loads(req.body)['ttl'] == 900
+                    else 'Not setting min'), # put to .hash file
             ('404 Not Found', {}, ''), # HEAD call, see if create cont
             ('204 No Content', {}, ''), # put create cont
             ('204 No Content', {}, ''), # put to add obj to listing
