@@ -1,3 +1,9 @@
+sos (1.1.1-1ubuntu~lucid) lucid; urgency=low
+
+  * Accept out of bounds TTLs but set to boundary. Cap outgoing ttl to min / max.
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 7 Aug 2012 13:09:58 +0000
+
 sos (1.1.0-1ubuntu~lucid) lucid; urgency=low
 
   * Add a auth hook for denying accounts.
