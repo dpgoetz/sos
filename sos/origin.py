@@ -364,7 +364,6 @@ class CdnHandler(OriginBase):
             self.cdn_regexes.append(regex)
 
     def _getCacheHeaders(self, ttl):
-        ttl = min(max(ttl, self.min_ttl), self.max_ttl)
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
                                     gmtime(time() + ttl)),
                 'Cache-Control': 'max-age:%d, public' % ttl}
