@@ -366,7 +366,7 @@ class CdnHandler(OriginBase):
     def _getCacheHeaders(self, ttl):
         return {'Expires': strftime("%a, %d %b %Y %H:%M:%S GMT",
                                     gmtime(time() + ttl)),
-                'Cache-Control': 'max-age:%d, public' % ttl}
+                'Cache-Control': 'max-age=%d, public' % ttl}
 
     def _getCdnHeaders(self, req):
         headers = {'X-Web-Mode': 'True', 'User-Agent': 'SOS Origin'}
