@@ -283,7 +283,7 @@ class TestCdnHandler(unittest.TestCase):
         resp = self.cdn_handler.handle_request(env, req)
         self.assertEquals(resp.status_int, 400)
         self.assertEquals(resp.headers['Cache-Control'],
-                          'max-age:86400, public')
+                          'max-age=86400, public')
         self.assertEquals(logger.debug_calls, [(("get_hsh_obj_path error: "
             "invalid literal for int() with base 16: 'one'",), {})])
         del logger.debug_calls[:]
@@ -295,7 +295,7 @@ class TestCdnHandler(unittest.TestCase):
         resp = self.cdn_handler.handle_request(env, req)
         self.assertEquals(resp.status_int, 400)
         self.assertEquals(resp.headers['Cache-Control'],
-                          'max-age:86400, public')
+                          'max-age=86400, public')
         self.assertEquals(logger.debug_calls, [(("get_hsh_obj_path error: "
             "invalid literal for int() with base 16: 'two'",), {})])
         
