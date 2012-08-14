@@ -749,7 +749,8 @@ delete_enabled = true
             'http://origin_db.com:8080/v1/acc/cont?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.test_origin)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, json.dumps([]))
         # acc not found head
         self.test_origin.app = FakeApp(iter([('404 Not Found', {}, '')]))
         req = Request.blank(

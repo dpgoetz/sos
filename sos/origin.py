@@ -15,7 +15,7 @@
 from time import time, gmtime, strftime
 from webob import Response, Request
 from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPNoContent, HTTPAccepted, HTTPCreated, HTTPMethodNotAllowed, \
+    HTTPNoContent, HTTPOk, HTTPAccepted, HTTPCreated, HTTPMethodNotAllowed, \
     HTTPRequestRangeNotSatisfiable, HTTPInternalServerError, \
     HTTPPreconditionFailed, HTTPNotModified, HTTPMovedPermanently
 from urllib import unquote, quote
@@ -612,6 +612,15 @@ class OriginDbHandler(OriginBase):
                 response_body = '\n'.join(listing_formatted) + '\n'
             return Response(body=response_body, headers=resp_headers)
         except OriginDbNotFound:
+            if list_format == 'xml':
+                empty_xml = '\n'.join(
+                    ['<?xml version="1.0" encoding="UTF-8"?>',
+                     '<account name="%s">' % account,
+                     '</account>'])
+                return HTTPOk(request=req, body=empty_xml)
+            elif list_format == 'json':
+                return HTTPOk(request=req, body=json.dumps([]))
+
             return HTTPNoContent(request=req)
 
     def origin_db_delete(self, env, req):
