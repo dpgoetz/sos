@@ -553,6 +553,9 @@ class OriginDbHandler(OriginBase):
         enabled_only = None
         if get_param(req, 'enabled'):
             enabled_only = get_param(req, 'enabled').lower() in TRUE_VALUES
+        if get_param(req, 'enabled_only') and \
+                get_param(req, 'enabled_only').lower() in TRUE_VALUES:
+            enabled_only = True
         limit = get_param(req, 'limit')
         if limit:
             try:
