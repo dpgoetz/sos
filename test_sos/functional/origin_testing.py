@@ -10,6 +10,8 @@ from urllib import quote
 import datetime
 from webob import Response
 from swift.common.utils import urlparse, TRUE_VALUES
+from xml.dom.minidom import parseString
+from xml.sax import saxutils
 
 from sos_testing import check_response, retry, skip, swift_test_user, \
     swift_test_auth, sos_conf, conf
@@ -151,7 +153,7 @@ class TestOrigin(unittest.TestCase):
             return check_response(conn)
 
         cont_objs = [(uuid4().hex, uuid4().hex),
-                     (u'test cont \u2661', u'test obj \u2661'),]
+                     (u'test cont \u2661', u'test obj \u2661')]
         for cont, obj in cont_objs:
             if isinstance(cont, unicode):
                 cont = cont.encode('utf-8')
@@ -181,7 +183,8 @@ class TestOrigin(unittest.TestCase):
                 date_added = datetime.datetime.strptime(date_str_added,
                     "%a, %d %b %Y %H:%M:%S GMT")
                 exp_expires = date_added + datetime.timedelta(1)
-                self.assertEquals(self._get_header('Expires', resp.getheaders()),
+                self.assertEquals(
+                    self._get_header('Expires', resp.getheaders()),
                     datetime.datetime.strftime(exp_expires,
                                                "%a, %d %b %Y %H:%M:%S GMT"))
                 resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
@@ -215,6 +218,8 @@ class TestOrigin(unittest.TestCase):
 
         unitest = u'test \u2661'
         conts.append(unitest)
+        xml_test = 'xte<st \u2661'
+        conts.append(xml_test)
         for cont in conts:
             if isinstance(cont, unicode):
                 cont = cont.encode('utf-8')
@@ -237,7 +242,7 @@ class TestOrigin(unittest.TestCase):
             self.assert_(cont.encode('utf8') in body)
         resp = retry(get_sos, '', 'true')
         body = resp.read()
-        for cont in conts[:-1]:
+        for cont in conts[:-2]:
             self.assertEquals(not cont.startswith('x'), cont in body)
         resp = retry(get_sos, '', 'false')
         body = resp.read()
@@ -258,8 +263,10 @@ class TestOrigin(unittest.TestCase):
 
         resp = retry(get_sos, 'xml')
         body = resp.read()
+        parseString(body)
         for cont in conts:
-            self.assert_('<name>%s</name>' % cont.encode('utf8') in body)
+            self.assert_('<name>%s</name>' %
+                         saxutils.escape(cont.encode('utf8')) in body)
 
     def test_origin_301(self):
 

@@ -21,6 +21,7 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
 from urllib import unquote, quote
 from urlparse import urlparse
 from hashlib import md5, sha1
+from xml.sax import saxutils
 import hmac
 import re
 
@@ -524,9 +525,16 @@ class OriginDbHandler(OriginBase):
                        'cdn_enabled': cdn_enabled,
                        'ttl': ttl, 'log_retention': log_ret}
         output_dict.update(cdn_url_dict)
+
+        def sos_escape(val):
+            if isinstance(val, basestring):
+                return saxutils.escape(val)
+            return val
+
         if output_format == 'xml':
-            xml_data = '\n'.join(['<%s>%s</%s>' % (tag, val, tag)
-                                  for tag, val in output_dict.items()])
+            xml_data = '\n'.join(
+                ['<%s>%s</%s>' % (tag, sos_escape(val), tag)
+                 for tag, val in output_dict.items()])
             return """  <container>
             %s
   </container>""" % xml_data
@@ -617,9 +625,13 @@ class OriginDbHandler(OriginBase):
                     ['<?xml version="1.0" encoding="UTF-8"?>',
                      '<account name="%s">' % account,
                      '</account>'])
-                return HTTPOk(request=req, body=empty_xml)
+                return HTTPOk(request=req,
+                              headers={'Content-Type': 'application/xml'},
+                              body=empty_xml)
             elif list_format == 'json':
-                return HTTPOk(request=req, body=json.dumps([]))
+                return HTTPOk(request=req,
+                              headers={'Content-Type': 'application/json'},
+                              body=json.dumps([]))
 
             return HTTPNoContent(request=req)
 
