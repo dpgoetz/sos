@@ -1,3 +1,11 @@
+sos (1.1.5-1ubuntu~lucid) lucid; urgency=low
+
+  * fix xml listing bug
+  * fix cache-control header
+  * uncap outgoing ttl bounds
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 16 Aug 2012 13:09:58 +0000
+
 sos (1.1.2-1ubuntu~lucid) lucid; urgency=low
 
   * Fix empty db listing responses
