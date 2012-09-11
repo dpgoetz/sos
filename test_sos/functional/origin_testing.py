@@ -257,7 +257,7 @@ class TestOrigin(unittest.TestCase):
         found_it = False
         for data_dict in data:
             if data_dict['name'] == unitest:
-                self.assertEquals(data_dict['cdn_uri'], unitest_cdn_url)
+                self.assertEquals(data_dict['x-cdn-uri'], unitest_cdn_url)
                 found_it = True
         self.assert_(found_it)
 

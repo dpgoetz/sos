@@ -10,7 +10,7 @@ from ConfigParser import MissingSectionHeaderError
 
 from test_sos.functional import get_configs
 
-from swift.common.client import get_auth, http_connection
+from swiftclient.client import get_auth, http_connection
 
 conf, sos_conf = get_configs()
 
