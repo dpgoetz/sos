@@ -1020,7 +1020,7 @@ hash_path_suffix = testing
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
             ('200 Ok', {'x-object-meta-test': 'hey',
-                        'Content-Length': len('Test obj body.')},
+                        'Content-Length': str(len('Test obj body.'))},
              'Test obj body.',
              lambda req: False if req.headers['if-modified-since'] ==
                 '2000-01-01' else 'Headers not kept')])) #call to get obj
@@ -1031,7 +1031,7 @@ hash_path_suffix = testing
                      'swift.cdn_object_name': 'obj1.jpg'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.headers.get('x-object-meta-test'), 'hey')
-        self.assertEquals(resp.headers.get('Content-Length'), 14)
+        self.assertEquals(resp.headers.get('Content-Length'), '14')
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.body, 'Test obj body.')
 

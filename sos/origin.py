@@ -146,10 +146,10 @@ class HashData(object):
         self.cdn_enabled = bool(cdn_enabled)
 
     def get_json_str(self):
-        data = {'account': self.account, 'container': self.container,
-                'ttl': self.ttl, 'logs_enabled': self.logs_enabled,
-                'cdn_enabled': self.cdn_enabled}
-        return json.dumps(data)
+        return json.dumps({
+            'account': self.account, 'container': self.container,
+            'ttl': self.ttl, 'logs_enabled': self.logs_enabled,
+            'cdn_enabled': self.cdn_enabled})
 
     def __str__(self):
         return self.get_json_str()
