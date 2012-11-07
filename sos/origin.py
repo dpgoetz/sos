@@ -19,14 +19,14 @@ from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPRequestRangeNotSatisfiable, HTTPInternalServerError, \
     HTTPPreconditionFailed, HTTPNotModified, HTTPMovedPermanently
 from urllib import unquote, quote
-from urlparse import urlparse
+from urlparse import urlparse, parse_qs
 from hashlib import md5, sha1
 from xml.sax import saxutils
 import hmac
 import re
 
 from swift.common import utils
-from swift.common.utils import get_logger, get_param, TRUE_VALUES, readconf
+from swift.common.utils import get_logger, TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
 try:
@@ -565,14 +565,22 @@ class OriginDbHandler(OriginBase):
         if not account:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
-        marker = get_param(req, 'marker', default='')
-        list_format = get_param(req, 'format')
+        param_dict = parse_qs(req.query_string)
+
+        def get_param(key):
+            val = param_dict.get(key)
+            if val:
+                return val[0]
+            return None
+
+        marker = get_param('marker') or ''
+        list_format = get_param('format')
         if list_format:
             list_format = list_format.lower()
         enabled_only = None
-        if get_param(req, 'enabled'):
-            enabled_only = get_param(req, 'enabled').lower() in TRUE_VALUES
-        limit = get_param(req, 'limit')
+        if get_param('enabled'):
+            enabled_only = get_param('enabled').lower() in TRUE_VALUES
+        limit = get_param('limit')
         if limit:
             try:
                 limit = int(limit)

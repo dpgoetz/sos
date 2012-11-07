@@ -195,6 +195,9 @@ class TestOrigin(unittest.TestCase):
 
     def test_db_listing(self):
 
+        unitest = u'test \u2661'
+        xml_test = 'xte<st \u2661'
+
         def put_sos(url, token, parsed, conn, cont, headers={}):
             headers.update({'X-Auth-Token': token, 'X-TTL': 60 * 60 * 24})
             conn.request('PUT', parsed.path + '/' + cont, '',
@@ -207,6 +210,13 @@ class TestOrigin(unittest.TestCase):
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
 
+        def get_sos_marker(url, token, parsed, conn, output_format,
+                           cdn_enabled=''):
+            conn.request('GET',
+                parsed.path + '?marker=%s' % quote(unitest.encode('utf8')), '',
+                self._db_headers({'X-Auth-Token': token}))
+            return check_response(conn)
+
         def head_sos(url, token, parsed, conn, cont):
             conn.request('HEAD',
                 parsed.path + '/' + cont, '',
@@ -216,9 +226,7 @@ class TestOrigin(unittest.TestCase):
         conts = [uuid4().hex for i in xrange(5)]
         conts.extend(['x' + uuid4().hex for i in xrange(5)])
 
-        unitest = u'test \u2661'
         conts.append(unitest)
-        xml_test = 'xte<st \u2661'
         conts.append(xml_test)
         for cont in conts:
             if isinstance(cont, unicode):
@@ -267,6 +275,10 @@ class TestOrigin(unittest.TestCase):
         for cont in conts:
             self.assert_('<name>%s</name>' %
                          saxutils.escape(cont.encode('utf8')) in body)
+
+        resp = retry(get_sos_marker, '')
+        resp.read()
+        self.assertEquals(resp.status, 200)
 
     def test_origin_301(self):
 

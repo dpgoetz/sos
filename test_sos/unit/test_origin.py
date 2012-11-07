@@ -18,6 +18,7 @@ try:
 except ImportError:
     import json
 import unittest
+import urllib
 from hashlib import md5
 
 from webob import Request, Response
@@ -907,7 +908,7 @@ hash_path_suffix = testing
         self.assert_('<ttl>1234</ttl>' in resp.body)
         self.assertEquals(resp.status_int, 200)
 
-    def test_origin_db_get_marker(self):
+    def test_origin_db_get_enabled(self):
         listing_data = json.dumps([
             {'name': 'test1', 'content_type': 'x-cdn/false-1234-false'},
             {'name': 'test2', 'content_type': 'x-cdn/false-2234-false'}])
@@ -922,6 +923,22 @@ hash_path_suffix = testing
         resp = req.get_response(self.test_origin)
         self.assert_('test1' not in resp.body)
         self.assert_('test3' in resp.body)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_origin_db_get_marker(self):
+        listing_data = json.dumps([
+            {'name': 'test1', 'content_type': 'x-cdn/false-1234-false'},
+            {'name': 'test2', 'content_type': 'x-cdn/false-2234-false'}])
+        listing_data_enabled = json.dumps([
+            {'name': 'test3', 'content_type': 'x-cdn/true-1234-false'},
+            {'name': 'test4', 'content_type': 'x-cdn/true-2234-false'}])
+        self.test_origin.app = FakeApp(iter([('200 Ok', {}, listing_data),
+            ('200 Ok', {}, listing_data_enabled)]))
+        unitest = urllib.quote(u'a \u2661'.encode('utf8'))
+        req = Request.blank(
+            'http://origin_db.com:8080/v1/acc/cont?marker=%s' % unitest,
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 200)
 
     def test_origin_db_head(self):
