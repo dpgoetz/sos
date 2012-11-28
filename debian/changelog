@@ -1,3 +1,10 @@
+sos (1.1.7-1ubuntu~lucid) lucid; urgency=low
+
+  * stop prepopulating memcache on POSTs to fix cache race condition
+  * add extra logging data showing current values of cdn-enabled, log-enabled, ttl
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 28 Nov 2012 13:09:58 +0000
+
 sos (1.1.5-1ubuntu~lucid) lucid; urgency=low
 
   * fix xml listing bug
