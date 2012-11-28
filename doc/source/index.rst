@@ -44,9 +44,12 @@ swift except add the header 'Host: origin_db.com' to the request. When
 you do a HEAD request you will see the cdn url returned as a header.
 
 For example on a SAIO:
+
 Get/set token:
-``export AUTH_TOKEN=[AUTH_token]``
-``export AUTH_USER=[AUTH_user]``
+
+    ``export AUTH_TOKEN=[AUTH_token]``
+
+    ``export AUTH_USER=[AUTH_user]``
 
 Put container in swift:
 ``curl -i -H "X-Auth-Token: $AUTH_TOKEN" http://127.0.0.1:8080/v1/$AUTH_USER/pub -XPUT``
@@ -65,7 +68,7 @@ Setting up Logging
 If you want to add separate logging for SOS in a SAIO edit your rsyslog conf
 to add a new section.
 
-#. Edit /etc/rsyslog.d/10-swift.conf::
+Edit /etc/rsyslog.d/10-swift.conf::
 
     local6.*;local6.!notice /var/log/swift/sos.log
     local6.notice           /var/log/swift/sos.error
@@ -74,23 +77,33 @@ to add a new section.
 Building Packages
 -----------------
 
-1. Using python-stdeb: 
-    To build packages ``sudo easy_install stdeb``
+#. First install ``apt-get install build-essential devscripts dh-make``
 
-    cd into sos directory and run: ``python setup.py --command-packages=stdeb.command bdist_deb``
+#. Export an env variable for the version you are building (in this case 1.1.7), create a base directory, get a copy of the source code, and remove the .git subdir::
 
-2. Using debuild: 
-    First install ``apt-get install build-essential devscripts dh-make``
+    export V=1.1.7
+    mkdir sos-$V
+    cd sos-$V
+    git clone git@github.com:dpgoetz/sos.git sos-$V
+    sudo rm -r sos-$V/.git
 
-    Rename the sos directory to sos-VERSION  
+#. Create a tar file of the sos source code directory::
 
-    Create the original tarball: ``tar --exclude=debian -zcvf sos-VERSION.orig.tar.gz``
+    tar --exclude=debian -zcvf sos_$V.orig.tar.gz sos-$V/
 
-    Then cd into sos-VERSION directory and run ``debuild -us -uc``
+#. Create the debian packages::
 
-    This will build the package without signing with your GPG key. 
-    Keep in mind that it is a good idea to have your GPG key ready when building packages.
-    It might complain that you don't have the necessary build dependencies, if so, install them.
+    cd sos-$V
+    debuild -uc -us
+
+#. Create another tar file of the whole package for distribution::
+
+    cd ../..
+    tar czvf sos-$V.tar.gz sos-$V/
+
+This will build the package without signing with your GPG key.
+Keep in mind that it is a good idea to have your GPG key ready when building packages.
+It might complain that you don't have the necessary build dependencies, if so, install them.
 
     Ref: ``http://wiki.debian.org/IntroDebianPackaging``
 
