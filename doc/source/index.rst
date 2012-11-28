@@ -96,7 +96,7 @@ Building Packages
     cd sos-$V
     debuild -uc -us
 
-#. Create another tar file of the whole package::
+#. Create another tar file of the whole package for distribution::
 
     cd ../..
     tar czvf sos-$V.tar.gz sos-$V/
