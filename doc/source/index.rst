@@ -89,7 +89,7 @@ Building Packages
 
 #. Create a tar file of the sos source code directory::
 
-    tar --exclude=debian -zcvf sos-$V.orig.tar.gz sos-$V/
+    tar --exclude=debian -zcvf sos_$V.orig.tar.gz sos-$V/
 
 #. Create the debian packages::
 
