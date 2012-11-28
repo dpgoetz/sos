@@ -36,8 +36,7 @@ except ImportError:
 
 CACHE_BAD_URL = 86400
 CACHE_404 = 30
-SWIFT_FETCH_SIZE = 100 * 1024
-MEMCACHE_TIMEOUT = 3600
+MEMCACHE_TIMEOUT = 600
 
 
 class InvalidContentType(Exception):
@@ -758,10 +757,6 @@ class OriginDbHandler(OriginBase):
             cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
             return HTTPAccepted(request=req,
                                 headers=cdn_url_headers)
-        memcache_client = utils.cache_from_env(env)
-        memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
-        if memcache_client:
-            memcache_client.delete(memcache_key)
 
         cdn_obj_data = new_hash_data.get_json_str()
         cdn_obj_etag = md5(cdn_obj_data).hexdigest()
@@ -776,10 +771,10 @@ class OriginDbHandler(OriginBase):
                 'Could not PUT .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
 
+        memcache_client = utils.cache_from_env(env)
         if memcache_client:
-            memcache_client.set(
-                memcache_key, cdn_obj_data, serialize=False,
-                timeout=MEMCACHE_TIMEOUT)
+            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
+            memcache_client.delete(memcache_key)
 
         listing_cont_path = quote('/v1/%s/%s' % (self.origin_account, account))
         resp = make_pre_authed_request(
@@ -798,11 +793,11 @@ class OriginDbHandler(OriginBase):
         cdn_list_path = quote('/v1/%s/%s/%s' % (self.origin_account,
                                                 account, container))
 
+        listing_content_type = self._gen_listing_content_type(cdn_enabled, ttl,
+                                                              logs_enabled)
         cdn_list_resp = make_pre_authed_request(
             env, req.method, cdn_list_path,
-            headers={'Content-Type':
-                     self._gen_listing_content_type(cdn_enabled, ttl,
-                                                    logs_enabled),
+            headers={'Content-Type': listing_content_type,
                      'Content-Length': 0},
             agent='SwiftOrigin').get_response(self.app)
 
@@ -813,11 +808,13 @@ class OriginDbHandler(OriginBase):
         # PUTs and POSTs have the headers as HEAD
         cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
-            return HTTPAccepted(request=req,
+            resp = HTTPAccepted(request=req,
                                 headers=cdn_url_headers)
         else:
-            return HTTPCreated(request=req,
+            resp = HTTPCreated(request=req,
                                headers=cdn_url_headers)
+        resp.extra_log_data = listing_content_type
+        return resp
 
     def handle_request(self, env, req):
         """
@@ -909,7 +906,7 @@ class OriginServer(object):
             if handler:
                 req = Request(env)
                 resp = handler.handle_request(env, req)
-                self._log_request(env, resp.status_int, request_type)
+                self._log_request(env, resp, request_type)
                 return resp(env, start_response)
 
         except InvalidConfiguration, e:
@@ -922,7 +919,7 @@ class OriginServer(object):
             self.logger.debug(e)
         return self.app(env, start_response)
 
-    def _log_request(self, env, status_int, request_type):
+    def _log_request(self, env, response, request_type):
         """
         Logs requests as they were made to SOS.  Will include original
         hostname and path.  Will include the status of the response but
@@ -941,6 +938,9 @@ class OriginServer(object):
         if not client and 'HTTP_X_FORWARDED_FOR' in env:
             # remote user for other lbs
             client = env['HTTP_X_FORWARDED_FOR'].split(',')[0].strip()
+        extra_data = '-'
+        if hasattr(response, 'extra_log_data'):
+            extra_data = response.extra_log_data
         self.logger.info(' '.join(quote(str(x)) for x in (
             client or '-',
             env.get('REMOTE_ADDR', '-'),
@@ -950,13 +950,14 @@ class OriginServer(object):
             env.get('HTTP_HOST', '-'),
             the_request,
             env['SERVER_PROTOCOL'],
-            status_int,
+            response.status_int,
             env.get('HTTP_REFERER', '-'),
             env.get('HTTP_USER_AGENT', '-'),
             env.get('HTTP_X_AUTH_TOKEN', '-'),
             env.get('HTTP_ETAG', '-'),
             env.get('swift.trans_id', '-'),
-            trans_time)))
+            trans_time,
+            extra_data)))
 
 
 def filter_factory(global_conf, **local_conf):
