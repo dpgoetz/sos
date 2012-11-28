@@ -79,7 +79,7 @@ Building Packages
 
 #. First install ``apt-get install build-essential devscripts dh-make``
 
-#. Export the an env variable for the version you are building (in this case 1.1.7), create a base directory, get a copy of the source code, and remove the .git subdir::
+#. Export an env variable for the version you are building (in this case 1.1.7), create a base directory, get a copy of the source code, and remove the .git subdir::
 
     export V=1.1.7
     mkdir sos-$V
