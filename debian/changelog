@@ -1,4 +1,4 @@
-sos (1.1.7) lucid; urgency=low
+sos (1.1.7-1) lucid precise; urgency=low
 
   * stop prepopulating memcache on POSTs to fix cache race condition
   * add extra logging data showing current values of cdn-enabled, log-enabled, ttl
