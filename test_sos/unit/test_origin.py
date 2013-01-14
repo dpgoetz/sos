@@ -792,7 +792,7 @@ delete_enabled = true
             resp = req.get_response(self.test_origin)
 
             self.assertEquals(resp.status_int, 204)
-            self.assertEquals(resp.headers['X-TTL'], 5555)
+            self.assertEquals(resp.headers['X-TTL'], '5555')
         finally:
             utils.cache_from_env = was_memcache
 
@@ -847,7 +847,7 @@ delete_enabled = true
                 environ={'REQUEST_METHOD': 'HEAD'})
             resp = req.get_response(self.test_origin)
             self.assertEquals(resp.status_int, 204)
-            self.assertEquals(resp.headers['X-TTL'], 1234)
+            self.assertEquals(resp.headers['X-TTL'], '1234')
         finally:
             utils.cache_from_env = was_memcache
 
@@ -950,7 +950,7 @@ hash_path_suffix = testing
             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.test_origin)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers['x-ttl'], 1234)
+        self.assertEquals(resp.headers['x-ttl'], '1234')
 
     def test_cdn_bad_req(self):
         for meth in ['PUT', 'POST', 'DELETE', 'JUNK']:

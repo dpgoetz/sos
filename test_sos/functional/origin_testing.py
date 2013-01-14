@@ -44,6 +44,7 @@ class TestOrigin(unittest.TestCase):
             conf.get('sos_static_web') in TRUE_VALUES
 
     def tearDown(self):
+        return
         if skip:
             raise SkipTest
 
@@ -99,6 +100,7 @@ class TestOrigin(unittest.TestCase):
                 parsed.path + '/%s' % cont, '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
+            print "cdn url: %s" % cdn_url
 
         cont = uuid4().hex
         self.conts_to_delete.append(cont)
@@ -177,6 +179,7 @@ class TestOrigin(unittest.TestCase):
                 cdn_url = self._get_header(key, head_resp.getheaders())
                 resp = retry(origin_get, cdn_url=cdn_url, obj=obj)
                 body = resp.read()
+                print "lalal: %s: %s" % (cdn_url, body)
                 self.assertEquals(resp.status // 100, 2)
                 self.assertEquals('testbody', body)
                 date_str_added = self._get_header('date', resp.getheaders())
@@ -238,6 +241,7 @@ class TestOrigin(unittest.TestCase):
             else:
                 resp = retry(put_sos, cont)
             resp.read()
+            print 'cont: %s: %s' % (cont, resp.status)
             self.assertEquals(resp.status, 201)
 
         head_resp = retry(head_sos, quote(unitest.encode('utf8')))
@@ -263,6 +267,7 @@ class TestOrigin(unittest.TestCase):
         resp_conts = [d['name'] for d in data]
         self.assertEquals(set(resp_conts), set(conts))
         found_it = False
+        print "rrrrrrrrrr: %s" % data
         for data_dict in data:
             if data_dict['name'] == unitest:
                 self.assertEquals(data_dict['x-cdn-uri'], unitest_cdn_url)
@@ -332,8 +337,10 @@ class TestOrigin(unittest.TestCase):
             if 'ssl' in key.lower() != self.use_ssl:
                 continue
             cdn_url = self._get_header(key, head_resp.getheaders())
+            print "cdn url: %s" % cdn_url
             resp = retry(origin_get, cdn_url=cdn_url, obj='hat/')
             body = resp.read()
+            print body
             self.assertEquals(resp.status // 100, 2)
             self.assertEquals('testbody', body)
 
