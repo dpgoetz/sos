@@ -14,7 +14,7 @@
 # limitations under the License.
 from time import time, gmtime, strftime
 from urllib import unquote, quote
-from urlparse import urlparse, parse_qs
+from urlparse import urlparse
 from hashlib import md5, sha1
 from xml.sax import saxutils
 import hmac
@@ -564,22 +564,14 @@ class OriginDbHandler(OriginBase):
         if not account:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
-        param_dict = parse_qs(req.query_string)
 
-        def get_param(key):
-            val = param_dict.get(key)
-            if val:
-                return val[0]
-            return None
-
-        marker = get_param('marker') or ''
-        list_format = get_param('format')
+        list_format = req.params.get('format', '')
         if list_format:
             list_format = list_format.lower()
         enabled_only = None
-        if get_param('enabled'):
-            enabled_only = get_param('enabled').lower() in TRUE_VALUES
-        limit = get_param('limit')
+        if req.params.get('enabled'):
+            enabled_only = req.params['enabled'].lower() in TRUE_VALUES
+        limit = req.params.get('limit')
         if limit:
             try:
                 limit = int(limit)
@@ -624,7 +616,8 @@ class OriginDbHandler(OriginBase):
             return resp_headers, listing_formatted
 
         try:
-            resp_headers, listing_formatted = get_listings(marker)
+            resp_headers, listing_formatted = get_listings(
+                req.params.get('marker', ''))
             if list_format == 'xml':
                 resp_headers['Content-Type'] = 'application/xml'
                 response_body = (
