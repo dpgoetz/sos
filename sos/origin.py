@@ -26,7 +26,7 @@ from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
 from swift.common.swob import Response, Request, HTTPBadRequest, \
     HTTPForbidden, HTTPNotFound, HTTPNoContent, HTTPOk, HTTPAccepted, \
-    HTTPCreated, HTTPMethodNotAllowed, HTTPRequestRangeNotSatisfiable, \
+    HTTPCreated, HTTPMethodNotAllowed, HTTPRequestedRangeNotSatisfiable, \
     HTTPInternalServerError, HTTPPreconditionFailed, HTTPNotModified, \
     HTTPMovedPermanently
 try:
@@ -457,7 +457,7 @@ class CdnHandler(OriginBase):
                 return HTTPNotModified(
                     request=req, headers=self._getCacheHeaders(hash_data.ttl))
             if resp.status_int == 416:
-                return HTTPRequestRangeNotSatisfiable(
+                return HTTPRequestedRangeNotSatisfiable(
                     request=req, headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int // 100 == 2 or resp.status_int == 404:
                 if resp.content_length > self.max_cdn_file_size:
