@@ -1,3 +1,9 @@
+sos (1.1.8-1) lucid precise; urgency=low
+
+  * use swift.swob instead of webob
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 28 Nov 2012 13:09:58 +0000
+
 sos (1.1.7-1) lucid precise; urgency=low
 
   * stop prepopulating memcache on POSTs to fix cache race condition
