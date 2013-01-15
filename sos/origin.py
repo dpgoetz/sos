@@ -13,13 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from time import time, gmtime, strftime
-from webob import Response, Request
-from webob.exc import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
-    HTTPNoContent, HTTPOk, HTTPAccepted, HTTPCreated, HTTPMethodNotAllowed, \
-    HTTPRequestRangeNotSatisfiable, HTTPInternalServerError, \
-    HTTPPreconditionFailed, HTTPNotModified, HTTPMovedPermanently
 from urllib import unquote, quote
-from urlparse import urlparse, parse_qs
+from urlparse import urlparse
 from hashlib import md5, sha1
 from xml.sax import saxutils
 import hmac
@@ -29,6 +24,11 @@ from swift.common import utils
 from swift.common.utils import get_logger, TRUE_VALUES, readconf
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
+from swift.common.swob import Response, Request, HTTPBadRequest, \
+    HTTPForbidden, HTTPNotFound, HTTPNoContent, HTTPOk, HTTPAccepted, \
+    HTTPCreated, HTTPMethodNotAllowed, HTTPRequestedRangeNotSatisfiable, \
+    HTTPInternalServerError, HTTPPreconditionFailed, HTTPNotModified, \
+    HTTPMovedPermanently
 try:
     import simplejson as json
 except ImportError:
@@ -64,11 +64,11 @@ class OriginRequestNotAllowed(Exception):
 
 
 class SosResponse(Response):
-    def _abs_headerlist(self, environ):
-        """Returns a headerlist, withOUT the Location header possibly
-        made absolute given the request environ.
+    def absolute_location(self):
         """
-        return self.headerlist
+        Do not force an absolute location
+        """
+        return self.location
 
 
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
@@ -305,7 +305,7 @@ class AdminHandler(OriginBase):
 
     def is_origin_admin(self, req):
         """
-        :param req: The webob.Request to check.
+        :param req: The swob.Request to check.
         :param returns: True if .origin_admin.
         :returns: True if the admin specified in the request represents the
             .origin_admin otherwise False
@@ -320,8 +320,8 @@ class AdminHandler(OriginBase):
         Swift cluster for use with the origin subsystem. Can only be called by
         .origin_admin
 
-        :param req: The webob.Request to process.
-        :returns: webob.Response, 204 on success
+        :param req: The swob.Request to process.
+        :returns: swob.Response, 204 on success
         """
         if not self.is_origin_admin(req):
             return HTTPForbidden(request=req)
@@ -457,7 +457,7 @@ class CdnHandler(OriginBase):
                 return HTTPNotModified(
                     request=req, headers=self._getCacheHeaders(hash_data.ttl))
             if resp.status_int == 416:
-                return HTTPRequestRangeNotSatisfiable(
+                return HTTPRequestedRangeNotSatisfiable(
                     request=req, headers=self._getCacheHeaders(CACHE_404))
             if resp.status_int // 100 == 2 or resp.status_int == 404:
                 if resp.content_length > self.max_cdn_file_size:
@@ -564,22 +564,14 @@ class OriginDbHandler(OriginBase):
         if not account:
             return HTTPBadRequest('Invalid request. '
                                   'URL format: /<api version>/<account>')
-        param_dict = parse_qs(req.query_string)
 
-        def get_param(key):
-            val = param_dict.get(key)
-            if val:
-                return val[0]
-            return None
-
-        marker = get_param('marker') or ''
-        list_format = get_param('format')
+        list_format = req.params.get('format', '')
         if list_format:
             list_format = list_format.lower()
         enabled_only = None
-        if get_param('enabled'):
-            enabled_only = get_param('enabled').lower() in TRUE_VALUES
-        limit = get_param('limit')
+        if req.params.get('enabled'):
+            enabled_only = req.params['enabled'].lower() in TRUE_VALUES
+        limit = req.params.get('limit')
         if limit:
             try:
                 limit = int(limit)
@@ -624,7 +616,8 @@ class OriginDbHandler(OriginBase):
             return resp_headers, listing_formatted
 
         try:
-            resp_headers, listing_formatted = get_listings(marker)
+            resp_headers, listing_formatted = get_listings(
+                req.params.get('marker', ''))
             if list_format == 'xml':
                 resp_headers['Content-Type'] = 'application/xml'
                 response_body = (
@@ -882,7 +875,7 @@ class OriginServer(object):
            containers.
         The types of requests can be determined by looking at the hostname of
         the incoming call.
-        Wraps env in webob.Request object and passes it down.
+        Wraps env in swob.Request object and passes it down.
 
         :param env: WSGI environment dictionary
         :param start_response: WSGI callable
