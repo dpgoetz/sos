@@ -334,8 +334,12 @@ class TestOrigin(unittest.TestCase):
             cdn_url = self._get_header(key, head_resp.getheaders())
             resp = retry(origin_get, cdn_url=cdn_url, obj='hat/')
             body = resp.read()
-            self.assertEquals(resp.status // 100, 2)
-            self.assertEquals('testbody', body)
+            try:
+                self.assertEquals(resp.status // 100, 2)
+                self.assertEquals('testbody', body)
+            except AssertionError:
+                print "!!!!!!!! DO YOU HAVE STATIC WEB TURNED ON? !!!!!!!!"
+                raise
 
             resp = retry(origin_get, cdn_url=cdn_url, obj='hat')
             body = resp.read()
