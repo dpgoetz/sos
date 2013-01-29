@@ -1,4 +1,4 @@
-sos (1.1.8-1) lucid precise; urgency=low
+sos (1.1.8-1rax) stable; urgency=low
 
   * use swift.swob instead of webob
 
