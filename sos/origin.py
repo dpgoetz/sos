@@ -789,7 +789,7 @@ class OriginDbHandler(OriginBase):
         listing_content_type = self._gen_listing_content_type(cdn_enabled, ttl,
                                                               logs_enabled)
         cdn_list_resp = make_pre_authed_request(
-            env, req.method, cdn_list_path,
+            env, 'PUT', cdn_list_path,
             headers={'Content-Type': listing_content_type,
                      'Content-Length': 0},
             agent='SwiftOrigin').get_response(self.app)
@@ -797,7 +797,7 @@ class OriginDbHandler(OriginBase):
         if cdn_list_resp.status_int // 100 != 2:
             raise OriginDbFailure(
                 'Could not PUT/POST to cdn listing in '
-                'origin db: %s %s' % (cdn_obj_path, cdn_list_resp.status_int))
+                'origin db: %s %s' % (cdn_list_path, cdn_list_resp.status_int))
         # PUTs and POSTs have the headers as HEAD
         cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
