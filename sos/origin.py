@@ -240,7 +240,7 @@ class OriginBase(object):
 
         resp = make_pre_authed_request(
             env, 'GET', cdn_obj_path,
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
         if resp.status_int // 100 == 2:
             try:
                 if memcache_client:
@@ -333,7 +333,7 @@ class AdminHandler(OriginBase):
             path = '/v1/%s' % self.origin_account
             resp = make_pre_authed_request(
                 req.environ, 'PUT', path,
-                agent='SwiftOrigin').get_response(self.app)
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
             if resp.status_int // 100 != 2:
                 raise Exception(
                     'Could not create the main origin account: %s %s' %
@@ -343,7 +343,8 @@ class AdminHandler(OriginBase):
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(
                     req.environ, 'PUT', path,
-                    agent='SwiftOrigin').get_response(self.app)
+                    agent='SwiftOrigin',
+                    swift_source='SOS').get_response(self.app)
                 if resp.status_int // 100 != 2:
                     raise Exception('Could not create %s container: %s %s' %
                                     (cont_name, path, resp.status))
@@ -431,10 +432,9 @@ class CdnHandler(OriginBase):
             if object_name:
                 swift_path += object_name
             headers = self._getCdnHeaders(req)
-            env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(
                 env, req.method, swift_path, headers=headers,
-                agent='SwiftOrigin').get_response(self.app)
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
             if resp.status_int == 301 and 'Location' in resp.headers:
                 loc_parsed = urlparse(resp.headers['Location'])
                 acc_cont_path = '/v1/%s/%s' % (
@@ -584,7 +584,7 @@ class OriginDbHandler(OriginBase):
             # no limit in request because may have to filter on cdn_enabled
             resp = make_pre_authed_request(
                 env, 'GET', listing_path,
-                agent='SwiftOrigin').get_response(self.app)
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
             resp_headers = {}
             listing_formatted = []
             if resp.status_int // 100 == 2:
@@ -669,7 +669,7 @@ class OriginDbHandler(OriginBase):
 
         resp = make_pre_authed_request(
             env, 'DELETE', cdn_obj_path,
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
 
         # A 404 means it's already deleted, which is okay
         if resp.status_int // 100 != 2 and resp.status_int != 404:
@@ -681,7 +681,7 @@ class OriginDbHandler(OriginBase):
                                                 account, container))
         list_resp = make_pre_authed_request(
             env, 'DELETE', cdn_list_path,
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
 
         if list_resp.status_int // 100 != 2 and list_resp.status_int != 404:
             raise OriginDbFailure(
@@ -757,7 +757,7 @@ class OriginDbHandler(OriginBase):
         cdn_obj_resp = make_pre_authed_request(
             env, 'PUT', cdn_obj_path, body=cdn_obj_data,
             headers={'Etag': cdn_obj_etag},
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
 
         if cdn_obj_resp.status_int // 100 != 2:
             raise OriginDbFailure(
@@ -772,12 +772,12 @@ class OriginDbHandler(OriginBase):
         listing_cont_path = quote('/v1/%s/%s' % (self.origin_account, account))
         resp = make_pre_authed_request(
             env, 'HEAD', listing_cont_path,
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
         if resp.status_int == 404:
             # create new container for listings
             resp = make_pre_authed_request(
                 req.environ, 'PUT', listing_cont_path,
-                agent='SwiftOrigin').get_response(self.app)
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
             if resp.status_int // 100 != 2:
                 raise OriginDbFailure(
                     'Could not create listing container '
@@ -792,7 +792,7 @@ class OriginDbHandler(OriginBase):
             env, 'PUT', cdn_list_path,
             headers={'Content-Type': listing_content_type,
                      'Content-Length': 0},
-            agent='SwiftOrigin').get_response(self.app)
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
 
         if cdn_list_resp.status_int // 100 != 2:
             raise OriginDbFailure(
