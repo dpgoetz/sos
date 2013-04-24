@@ -1,3 +1,10 @@
+sos (1.1.10-1) lucid precise; urgency=low
+
+  * change memcache client to use time istead of timeout param
+  * NOTE!!!! This is NOT backwards compatible with Swift < 1.8.0
+
+ -- David Goetz <dpgoetz@gmail.com>  Wed, 24 Apr 2013 13:09:58 +0000
+
 sos (1.1.9-1) lucid precise; urgency=low
 
   * fix small bug with listing updates and error logs
