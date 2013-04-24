@@ -131,9 +131,9 @@ class FakeMemcache(object):
             return self.override_get
         return self.store.get(key)
 
-    def set(self, key, value, serialize=False, timeout=0):
+    def set(self, key, value, serialize=False, time=0):
         self.store[key] = value
-        self.timeouts[key] = timeout
+        self.timeouts[key] = time
         return True
 
     def delete(self, key):
@@ -802,7 +802,7 @@ delete_enabled = true
             fake_mem = FakeMemcache(override_get=json.dumps({'account': 'acc',
                 'container': 'cont', 'ttl': 5555, 'logs_enabled': True,
                 'cdn_enabled': False}), raise_on_delete=False)
-            def check_set(key, value, serialize=True, timeout=0):
+            def check_set(key, value, serialize=True, time=0):
                 data = json.loads(value)
                 if data['ttl'] != 5555:
                     raise Exception('Memcache not working')

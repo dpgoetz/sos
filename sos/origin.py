@@ -246,7 +246,7 @@ class OriginBase(object):
                 if memcache_client:
                     memcache_client.set(memcache_key, resp.body,
                                         serialize=False,
-                                        timeout=MEMCACHE_TIMEOUT)
+                                        time=MEMCACHE_TIMEOUT)
 
                 return HashData.create_from_json(resp.body)
             except ValueError:
@@ -255,7 +255,7 @@ class OriginBase(object):
             if memcache_client:
                 # only memcache for 30 secs in case adding container to swift
                 memcache_client.set(memcache_key, '404',
-                                    serialize=False, timeout=CACHE_404)
+                                    serialize=False, time=CACHE_404)
 
         return None
 
