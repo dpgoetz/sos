@@ -432,6 +432,7 @@ class CdnHandler(OriginBase):
             if object_name:
                 swift_path += object_name
             headers = self._getCdnHeaders(req)
+            env['swift.source'] = 'SOS'
             resp = make_pre_authed_request(
                 env, req.method, swift_path, headers=headers,
                 agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
