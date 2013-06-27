@@ -21,8 +21,7 @@ import unittest
 import urllib
 from hashlib import md5
 
-from webob import Request, Response
-from webob.exc import HTTPUnauthorized
+from swift.common.swob import Request, Response, HTTPUnauthorized
 
 from sos import origin
 from swift.common import utils
@@ -1076,7 +1075,7 @@ hash_path_suffix = testing
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ('500', {}, 'Failure.')])) #call to get obj
+            (500, {}, 'Failure.')])) #call to get obj
         req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cdn_hash': 'abcd',

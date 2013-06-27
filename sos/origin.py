@@ -905,10 +905,10 @@ class OriginServer(object):
 
         except InvalidConfiguration, e:
             self.logger.exception(e)
-            return HTTPInternalServerError(e)(env, start_response)
+            return HTTPInternalServerError(body=str(e))(env, start_response)
         except InvalidUtf8:
             return HTTPPreconditionFailed(
-                request=req, body='Invalid UTF8')(env, start_response)
+                body='Invalid UTF8')(env, start_response)
         except OriginRequestNotAllowed, e:
             self.logger.debug(e)
         return self.app(env, start_response)
