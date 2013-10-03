@@ -8,7 +8,6 @@ from nose import SkipTest
 from uuid import uuid4
 from urllib import quote
 import datetime
-from webob import Response
 from swift.common.utils import urlparse, TRUE_VALUES
 from xml.dom.minidom import parseString
 from xml.sax import saxutils
@@ -40,7 +39,7 @@ class TestOrigin(unittest.TestCase):
         self.use_ssl = swift_test_auth.startswith('https')
         self.conts_to_delete = []
         self.swift_objs_to_delete = []
-        self.run_static_web_test_because_of_webob_hack = \
+        self.run_static_web_test_because_of_hack = \
             conf.get('sos_static_web') in TRUE_VALUES
 
     def tearDown(self):
@@ -282,7 +281,7 @@ class TestOrigin(unittest.TestCase):
 
     def test_origin_301(self):
 
-        if not self.run_static_web_test_because_of_webob_hack:
+        if not self.run_static_web_test_because_of_hack:
             raise SkipTest
 
         def put_swift(url, token, parsed, conn, cont):

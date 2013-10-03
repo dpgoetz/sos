@@ -63,6 +63,10 @@ class OriginRequestNotAllowed(Exception):
     pass
 
 
+ACCEPTABLE_FORMATS = ['text/plain',
+                      'application/json', 'application/xml', 'text/xml']
+
+
 class SosResponse(Response):
     def absolute_location(self):
         """
@@ -215,6 +219,14 @@ class OriginBase(object):
         hsh_num = int(hsh, 16) % self.num_hash_cont
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
+    def get_hsh_ref_obj_path(self, hsh):
+        """
+        Given a hash will return the path to where the cdn metadata is.
+        :raises: ValueError on invalid hsh
+        """
+        hsh_num = int(hsh, 16) % self.num_hash_cont
+        return '/v1/%s/.ref_hash_%d/%s' % (self.origin_account, hsh_num, hsh)
+
     def cdn_data_memcache_key(self, cdn_obj_path):
         return '%s/%s' % (self.origin_account, cdn_obj_path)
 
@@ -340,6 +352,16 @@ class AdminHandler(OriginBase):
                     (path, resp.status))
             for i in xrange(self.num_hash_cont):
                 cont_name = '.hash_%d' % i
+                path = '/v1/%s/%s' % (self.origin_account, cont_name)
+                resp = make_pre_authed_request(
+                    req.environ, 'PUT', path,
+                    agent='SwiftOrigin',
+                    swift_source='SOS').get_response(self.app)
+                if resp.status_int // 100 != 2:
+                    raise Exception('Could not create %s container: %s %s' %
+                                    (cont_name, path, resp.status))
+            for i in xrange(self.num_hash_cont):
+                cont_name = '.ref_hash_%d' % i
                 path = '/v1/%s/%s' % (self.origin_account, cont_name)
                 resp = make_pre_authed_request(
                     req.environ, 'PUT', path,
@@ -569,6 +591,11 @@ class OriginDbHandler(OriginBase):
         list_format = req.params.get('format', '')
         if list_format:
             list_format = list_format.lower()
+        else:
+            list_format = req.accept.best_match(ACCEPTABLE_FORMATS)
+            if list_format:
+                list_format = list_format.split('/')[1]
+
         enabled_only = None
         if req.params.get('enabled'):
             enabled_only = req.params['enabled'].lower() in TRUE_VALUES
@@ -725,6 +752,7 @@ class OriginDbHandler(OriginBase):
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
+        cdn_ref_obj_path = self.get_hsh_ref_obj_path(hsh)
         ttl, cdn_enabled, logs_enabled = self.default_ttl, True, False
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
@@ -764,6 +792,18 @@ class OriginDbHandler(OriginBase):
             raise OriginDbFailure(
                 'Could not PUT .hash obj in origin '
                 'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
+
+        # make a second reference object that will never be deleted
+        if req.method == 'PUT':
+            cdn_obj_resp = make_pre_authed_request(
+                env, 'PUT', cdn_ref_obj_path, body=cdn_obj_data,
+                headers={'Etag': cdn_obj_etag},
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+
+            if cdn_obj_resp.status_int // 100 != 2:
+                raise OriginDbFailure(
+                    'Could not PUT .ref_hash obj in origin '
+                    'db: %s %s' % (cdn_ref_obj_path, cdn_obj_resp.status_int))
 
         memcache_client = utils.cache_from_env(env)
         if memcache_client:
@@ -905,10 +945,10 @@ class OriginServer(object):
 
         except InvalidConfiguration, e:
             self.logger.exception(e)
-            return HTTPInternalServerError(e)(env, start_response)
+            return HTTPInternalServerError(body=str(e))(env, start_response)
         except InvalidUtf8:
             return HTTPPreconditionFailed(
-                request=req, body='Invalid UTF8')(env, start_response)
+                body='Invalid UTF8')(env, start_response)
         except OriginRequestNotAllowed, e:
             self.logger.debug(e)
         return self.app(env, start_response)

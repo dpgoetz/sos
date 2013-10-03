@@ -21,8 +21,7 @@ import unittest
 import urllib
 from hashlib import md5
 
-from webob import Request, Response
-from webob.exc import HTTPUnauthorized
+from swift.common.swob import Request, Response, HTTPUnauthorized
 
 from sos import origin
 from swift.common import utils
@@ -360,14 +359,14 @@ class TestOrigin(unittest.TestCase):
     def test_admin_setup(self):
         # PUTs for account and 16 .hash's
         self.test_origin.app = FakeApp(iter(
-           [('204 No Content', {}, '') for i in xrange(102)]))
+           [('204 No Content', {}, '') for i in xrange(201)]))
         resp = Request.blank('/origin/.prep',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Origin-Admin-User': '.origin_admin',
                      'X-Origin-Admin-Key': 'unittest'}).get_response(
                      self.test_origin)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(self.test_origin.app.calls, 101)
+        self.assertEquals(self.test_origin.app.calls, 201)
 
         self.test_origin.app = FakeApp(iter(
            [('404 Not Found', {}, '')]))
@@ -448,6 +447,7 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('404 Not Found', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, '', test_put), # put to .hash file
+            ('204 No Content', {}, '', test_put), # put to .ref_hash file
             ('404 Not Found', {}, ''), # HEAD call, see if create cont
             ('204 No Content', {}, ''), # put to create container
             ('204 No Content', {}, ''), # put to add obj to listing
@@ -521,6 +521,7 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, ''), # put to .hash
+            ('204 No Content', {}, ''), # put to .ref_hash
             ('404 Not Found', {}, ''), # HEAD check to list container
             ('404 Not Found', {}, ''), # PUT to list container
             ]))
@@ -532,6 +533,7 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, ''), # put to .hash
+            ('204 No Content', {}, ''), # put to .ref_hash
             ('204 No Content', {}, ''), # HEAD check to list container
             ('404 Not Found', {}, ''), # PUT to list container
             ]))
@@ -820,6 +822,7 @@ delete_enabled = true
                 'true'}
             self.test_origin.app = FakeApp(iter([ # no cdn call- hit memcache
                 ('204 No Content', {}, ''),
+                ('204 No Content', {}, ''), # put create ref cont
                 ('404 Not Found', {}, ''), # HEAD call, see if create cont
                 ('204 No Content', {}, ''), # put create cont
                 ('204 No Content', {}, ''), # put to add obj to listing
@@ -1076,7 +1079,7 @@ hash_path_suffix = testing
                 'ttl': 1234, 'logs_enabled': True, 'cdn_enabled': True})
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, prev_data), # call to _get_cdn_data
-            ('500', {}, 'Failure.')])) #call to get obj
+            (500, {}, 'Failure.')])) #call to get obj
         req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cdn_hash': 'abcd',
