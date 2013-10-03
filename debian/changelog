@@ -1,3 +1,10 @@
+sos (1.1.12-1) lucid precise; urgency=low
+
+  * add reference put and migration script
+  * actually get rid of webob
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 02 Oct 2013 13:09:58 +0000
+
 sos (1.1.11-1) lucid precise; urgency=low
 
   * set swift.source for entire (incoming/outgoing) requests
