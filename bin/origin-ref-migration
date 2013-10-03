@@ -1,0 +1,71 @@
+#!/usr/bin/env python
+# Copyright (c) 2011-2012 OpenStack, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from time import time
+from eventlet.greenpool import GreenPool
+from swiftly.client import Client
+
+i = [0]
+
+def get_all_cont_hashes():
+    cli = Client(swift_proxy=True, swift_proxy_storage_path ='/v1/.origin')
+    last_cont = None
+    all_conts = []
+    while True:
+        status, reason, headers, conts = cli.get_account(
+            prefix='.hash_', marker=last_cont)
+        if not conts:
+            break
+        last_cont = conts[-1]
+        all_conts.extend([cont['name'] for cont in conts])
+    return all_conts
+
+def migrate_hashes(container):
+    cli = Client(swift_proxy=True, swift_proxy_storage_path ='/v1/.origin')
+    last_obj = None
+    hash_num = container.split('_', 1)[1]
+    ref_cont = '.ref_hash_%s' % hash_num
+    while True:
+        try:
+            status, reason, headers, objs = cli.get_container(
+                container, marker=last_obj)
+        except Exception as err:
+            print 'error getting obj listing: %s: %s' % (container, err)
+            return
+        if not objs:
+            break
+        last_obj = objs[-1]
+        for hash_obj_dict in objs:
+            hash_obj = hash_obj_dict['name']
+            try:
+                cli.put_object(ref_cont, hash_obj, '',
+                                headers={'x-copy-from':
+                                         '%s/%s' % (container, hash_obj)})
+            except Exception as err:
+                print 'error putting ref hash: %s/%s: %s' % (
+                    ref_cont, hash_obj, err)
+            i[0] += 1
+
+if __name__ == '__main__':
+    pool = GreenPool(30)
+    hash_conts = get_all_cont_hashes()
+
+    start = time()
+    for nada in pool.imap(migrate_hashes, hash_conts):
+        if i[0] and i[0] % 10 == 0:
+            print 'done %s hashes %s/s' % (i[0], (i[0]/(time()-start)))
+
+    print 'transferred %s hash objs %s/s' % (i[0], (i[0]/(time()-start)))
