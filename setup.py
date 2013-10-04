@@ -42,6 +42,7 @@ setup(
     install_requires=[],  # removed for better compat
     scripts=[
         'bin/swift-origin-prep',
+        'bin/origin-ref-migration',
         ],
     entry_points={
         'paste.filter_factory': [
