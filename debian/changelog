@@ -1,3 +1,11 @@
+sos (1.1.14-1) lucid precise; urgency=low
+
+  * do not send Origin head down to swift for CDN calls. right
+    now swift does not behave well with it. Once swift gets
+    fixed this can be added back in.
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 22 Nov 2013 13:09:58 +0000
+
 sos (1.1.13-1) lucid precise; urgency=low
 
   * add migration script in setup
