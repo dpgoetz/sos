@@ -134,7 +134,8 @@ class HashData(object):
     Easier usage and standardized JSON handling of container hash data.
     """
 
-    def __init__(self, account, container, ttl, cdn_enabled, logs_enabled):
+    def __init__(self, account, container, ttl, cdn_enabled, logs_enabled,
+                 deleted=False):
         try:
             if not isinstance(account, unicode):
                 account = unicode(account, 'utf-8')
@@ -147,12 +148,13 @@ class HashData(object):
         self.ttl = int(ttl)
         self.logs_enabled = bool(logs_enabled)
         self.cdn_enabled = bool(cdn_enabled)
+        self.deleted = bool(deleted)
 
     def get_json_str(self):
         return json.dumps({
             'account': self.account, 'container': self.container,
             'ttl': self.ttl, 'logs_enabled': self.logs_enabled,
-            'cdn_enabled': self.cdn_enabled})
+            'cdn_enabled': self.cdn_enabled, 'deleted': self.deleted})
 
     def __str__(self):
         return self.get_json_str()
@@ -162,7 +164,8 @@ class HashData(object):
                 self.container == other.container and
                 self.ttl == other.ttl and
                 self.logs_enabled == other.logs_enabled and
-                self.cdn_enabled == other.cdn_enabled)
+                self.cdn_enabled == other.cdn_enabled and
+                self.deleted == other.deleted)
 
     def __ne__(self, other):
         return not self == other
@@ -176,9 +179,15 @@ class HashData(object):
         try:
             data = json.loads(json_str)
             return HashData(data['account'], data['container'], data['ttl'],
-                            data['cdn_enabled'], data['logs_enabled'])
+                            data['cdn_enabled'], data['logs_enabled'],
+                            deleted=data.get('deleted', False))
         except (KeyError, ValueError, TypeError), e:
             raise ValueError("Problem loading json: %s: %r" % (e, json_str))
+
+    def gen_listing_content_type(self):
+        return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
+            'cdn_enabled': self.cdn_enabled, 'ttl': self.ttl,
+            'log_ret': self.logs_enabled}
 
 
 class OriginBase(object):
@@ -219,14 +228,6 @@ class OriginBase(object):
         hsh_num = int(hsh, 16) % self.num_hash_cont
         return '/v1/%s/.hash_%d/%s' % (self.origin_account, hsh_num, hsh)
 
-    def get_hsh_ref_obj_path(self, hsh):
-        """
-        Given a hash will return the path to where the cdn metadata is.
-        :raises: ValueError on invalid hsh
-        """
-        hsh_num = int(hsh, 16) % self.num_hash_cont
-        return '/v1/%s/.ref_hash_%d/%s' % (self.origin_account, hsh_num, hsh)
-
     def cdn_data_memcache_key(self, cdn_obj_path):
         return '%s/%s' % (self.origin_account, cdn_obj_path)
 
@@ -234,9 +235,9 @@ class OriginBase(object):
         """
         Retrieves HashData object from memcache or by doing a GET
         of the cdn_obj_path which should be what is returned from
-        get_hsh_obj_path
+        get_hsh_obj_path. Will return None if the HashData is "deleted"
 
-        :returns: HashData object.
+        :returns: HashData object or None.
         """
         memcache_client = utils.cache_from_env(env)
         memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
@@ -246,7 +247,11 @@ class OriginBase(object):
                 return None
             if cached_cdn_data:
                 try:
-                    return HashData.create_from_json(cached_cdn_data)
+                    hash_data = HashData.create_from_json(cached_cdn_data)
+                    if hash_data.deleted:
+                        return None
+                    else:
+                        return hash_data
                 except ValueError:
                     pass
 
@@ -260,7 +265,9 @@ class OriginBase(object):
                                         serialize=False,
                                         time=MEMCACHE_TIMEOUT)
 
-                return HashData.create_from_json(resp.body)
+                hash_data = HashData.create_from_json(resp.body)
+                if not hash_data.deleted:
+                    return hash_data
             except ValueError:
                 self.logger.warn('Invalid HashData json: %s' % cdn_obj_path)
         if resp.status_int == 404:
@@ -513,13 +520,7 @@ class OriginDbHandler(OriginBase):
         OriginBase.__init__(self, app, conf, logger)
         self.conf = conf
         self.logger = logger
-        self.delete_enabled = self.conf.get('delete_enabled', 't').lower() in \
-            TRUE_VALUES
         self.default_ttl = int(self.conf.get('default_ttl', 259200))
-
-    def _gen_listing_content_type(self, cdn_enabled, ttl, logs_enabled):
-        return 'x-cdn/%(cdn_enabled)s-%(ttl)d-%(log_ret)s' % {
-            'cdn_enabled': cdn_enabled, 'ttl': ttl, 'log_ret': logs_enabled}
 
     def _parse_container_listing(self, account, listing_dict, output_format,
                                  only_cdn_enabled=None):
@@ -678,9 +679,15 @@ class OriginDbHandler(OriginBase):
             return HTTPNoContent(request=req)
 
     def origin_db_delete(self, env, req):
-        """ Handles DELETEs in the Origin database """
-        if not self.delete_enabled:
-            return HTTPMethodNotAllowed(request=req)
+        """
+        Handles DELETEs in the Origin database.
+        This is not really a delete- it will remove the object from the
+        container listing and set cdn_enabled=false and a deleted flag in the
+        .hash_* obj that says that the obj is deleted. This way the container
+        won't show up in the listings, HEAD to the object will return 404s but
+        behind the scenes lookups to the object will be able to determine
+        the account and container from a container_hash.
+        """
         try:
             vsn, account, container = split_path(req.path, 3, 3)
         except ValueError:
@@ -696,15 +703,10 @@ class OriginDbHandler(OriginBase):
             memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
             memcache_client.delete(memcache_key)
 
-        resp = make_pre_authed_request(
-            env, 'DELETE', cdn_obj_path,
-            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
-
-        # A 404 means it's already deleted, which is okay
-        if resp.status_int // 100 != 2 and resp.status_int != 404:
-            raise OriginDbFailure(
-                'Could not DELETE .hash obj in origin '
-                'db: %s %s' % (cdn_obj_path, resp.status_int))
+        ref_hash_data = HashData(
+            account, container, self.default_ttl, False, False, deleted=True)
+        self._set_hash_data(env, cdn_obj_path, ref_hash_data,
+                            update_listings=False)
 
         cdn_list_path = quote('/v1/%s/%s/%s' % (self.origin_account,
                                                 account, container))
@@ -718,7 +720,7 @@ class OriginDbHandler(OriginBase):
                 'db: %s %s' % (cdn_list_path, list_resp.status_int))
 
         # Return 404 if container didn't exist
-        if resp.status_int == 404 and list_resp.status_int == 404:
+        if list_resp.status_int == 404:
             return HTTPNotFound(request=req)
         return HTTPNoContent(request=req)
 
@@ -743,6 +745,65 @@ class OriginDbHandler(OriginBase):
             return HTTPNoContent(headers=headers)
         return HTTPNotFound(request=req)
 
+    def _set_hash_data(self, env, cdn_obj_path, new_hash_data,
+                       update_listings=True):
+        """
+        Actually sets the data in the .origin account. If not successful on
+        any of the several updates this has to do, will raise a OriginDbFailure
+        """
+        cdn_obj_data = new_hash_data.get_json_str()
+        cdn_obj_etag = md5(cdn_obj_data).hexdigest()
+        # this is always a PUT because a POST needs to update the file
+        cdn_obj_resp = make_pre_authed_request(
+            env, 'PUT', cdn_obj_path, body=cdn_obj_data,
+            headers={'Etag': cdn_obj_etag},
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+
+        if cdn_obj_resp.status_int // 100 != 2:
+            raise OriginDbFailure(
+                'Could not PUT .hash obj in origin '
+                'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
+
+        memcache_client = utils.cache_from_env(env)
+        if memcache_client:
+            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
+            memcache_client.delete(memcache_key)
+
+        if not update_listings:
+            return
+
+        listing_cont_path = quote('/v1/%s/%s' % (self.origin_account,
+                                                 new_hash_data.account))
+        resp = make_pre_authed_request(
+            env, 'HEAD', listing_cont_path,
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+        if resp.status_int == 404:
+            # create new container for listings
+            resp = make_pre_authed_request(
+                env, 'PUT', listing_cont_path,
+                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+            if resp.status_int // 100 != 2:
+                raise OriginDbFailure(
+                    'Could not create listing container '
+                    'in origin db: %s %s' % (listing_cont_path, resp.status))
+
+        cdn_list_path = quote('/v1/%s/%s/%s' % (
+            self.origin_account, new_hash_data.account.encode('utf-8'),
+            new_hash_data.container.encode('utf-8')))
+
+        listing_content_type = new_hash_data.gen_listing_content_type()
+
+        cdn_list_resp = make_pre_authed_request(
+            env, 'PUT', cdn_list_path,
+            headers={'Content-Type': listing_content_type,
+                     'Content-Length': 0},
+            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+
+        if cdn_list_resp.status_int // 100 != 2:
+            raise OriginDbFailure(
+                'Could not PUT/POST to cdn listing in '
+                'origin db: %s %s' % (cdn_list_path, cdn_list_resp.status_int))
+
     def origin_db_puts_posts(self, env, req):
         """
         Handles PUTs and POSTs into Origin database
@@ -753,7 +814,6 @@ class OriginDbHandler(OriginBase):
             return HTTPBadRequest()
         hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
-        cdn_ref_obj_path = self.get_hsh_ref_obj_path(hsh)
         ttl, cdn_enabled, logs_enabled = self.default_ttl, True, False
         hash_data = self.get_cdn_data(env, cdn_obj_path)
         if hash_data:
@@ -781,65 +841,8 @@ class OriginDbHandler(OriginBase):
             return HTTPAccepted(request=req,
                                 headers=cdn_url_headers)
 
-        cdn_obj_data = new_hash_data.get_json_str()
-        cdn_obj_etag = md5(cdn_obj_data).hexdigest()
-        # this is always a PUT because a POST needs to update the file
-        cdn_obj_resp = make_pre_authed_request(
-            env, 'PUT', cdn_obj_path, body=cdn_obj_data,
-            headers={'Etag': cdn_obj_etag},
-            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
+        self._set_hash_data(env, cdn_obj_path, new_hash_data)
 
-        if cdn_obj_resp.status_int // 100 != 2:
-            raise OriginDbFailure(
-                'Could not PUT .hash obj in origin '
-                'db: %s %s' % (cdn_obj_path, cdn_obj_resp.status_int))
-
-        # make a second reference object that will never be deleted
-        if req.method == 'PUT':
-            cdn_obj_resp = make_pre_authed_request(
-                env, 'PUT', cdn_ref_obj_path, body=cdn_obj_data,
-                headers={'Etag': cdn_obj_etag},
-                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
-
-            if cdn_obj_resp.status_int // 100 != 2:
-                raise OriginDbFailure(
-                    'Could not PUT .ref_hash obj in origin '
-                    'db: %s %s' % (cdn_ref_obj_path, cdn_obj_resp.status_int))
-
-        memcache_client = utils.cache_from_env(env)
-        if memcache_client:
-            memcache_key = self.cdn_data_memcache_key(cdn_obj_path)
-            memcache_client.delete(memcache_key)
-
-        listing_cont_path = quote('/v1/%s/%s' % (self.origin_account, account))
-        resp = make_pre_authed_request(
-            env, 'HEAD', listing_cont_path,
-            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
-        if resp.status_int == 404:
-            # create new container for listings
-            resp = make_pre_authed_request(
-                req.environ, 'PUT', listing_cont_path,
-                agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
-            if resp.status_int // 100 != 2:
-                raise OriginDbFailure(
-                    'Could not create listing container '
-                    'in origin db: %s %s' % (listing_cont_path, resp.status))
-
-        cdn_list_path = quote('/v1/%s/%s/%s' % (self.origin_account,
-                                                account, container))
-
-        listing_content_type = self._gen_listing_content_type(cdn_enabled, ttl,
-                                                              logs_enabled)
-        cdn_list_resp = make_pre_authed_request(
-            env, 'PUT', cdn_list_path,
-            headers={'Content-Type': listing_content_type,
-                     'Content-Length': 0},
-            agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
-
-        if cdn_list_resp.status_int // 100 != 2:
-            raise OriginDbFailure(
-                'Could not PUT/POST to cdn listing in '
-                'origin db: %s %s' % (cdn_list_path, cdn_list_resp.status_int))
         # PUTs and POSTs have the headers as HEAD
         cdn_url_headers = self.get_cdn_urls(hsh, 'HEAD')
         if req.method == 'POST':
@@ -848,6 +851,7 @@ class OriginDbHandler(OriginBase):
         else:
             resp = HTTPCreated(request=req,
                                headers=cdn_url_headers)
+        listing_content_type = new_hash_data.gen_listing_content_type()
         resp.extra_log_data = listing_content_type
         return resp
 
