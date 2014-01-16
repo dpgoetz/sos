@@ -74,7 +74,6 @@ class TestOrigin(unittest.TestCase):
                 resp.read()
                 self.assertEquals(resp.status, 204)
         for cont in self.conts_to_delete:
-            print 'trying to delete: %s' % cont
             resp = retry(delete_sos, cont)
             resp.read()
             self.assertEquals(resp.status, 204)
@@ -112,6 +111,202 @@ class TestOrigin(unittest.TestCase):
                           '123456')
         self.assertEquals(self._get_header('x-cdn-enabled', resp.getheaders()),
                           'True')
+
+
+    def test_cors(self):
+
+        def put_swift(url, token, parsed, conn, cont, obj, origin):
+            conn.request('PUT',
+                quote(parsed.path + '/%s' % cont), '',
+                {'X-Auth-Token': token,
+                 'X-Container-Meta-Access-Control-Allow-Origin': origin})
+            resp = check_response(conn)
+            resp.read()
+            conn.request('PUT',
+                quote(parsed.path + '/%s/%s' % (cont, obj)),
+                'testbody', {'X-Auth-Token': token, 'Content-Length': '8'})
+            return check_response(conn)
+
+        def put_sos(url, token, parsed, conn, cont):
+            conn.request('PUT',
+                quote(parsed.path + '/' + cont), '',
+                self._db_headers({'X-Auth-Token': token,
+                                  'X-TTL': str(60 * 60 * 24)}))
+            return check_response(conn)
+
+        def origin_get(url, token, parsed, conn, cdn_url, obj, headers={}):
+            cdn_parsed = urlparse(cdn_url)
+            conn.request('GET',
+                quote(cdn_parsed.path + '/' + obj), '',
+                self._origin_headers(headers, cdn_url))
+            return check_response(conn)
+
+        def origin_options(url, token, parsed, conn, cdn_url, obj, headers={}):
+            cdn_parsed = urlparse(cdn_url)
+            conn.request('OPTIONS',
+                quote(cdn_parsed.path + '/' + obj), '',
+                self._origin_headers(headers, cdn_url))
+            return check_response(conn, allow_401=True)
+
+        cont = 'cors_cont'
+        obj = 'index.html'
+
+        put_sos_resp = retry(put_sos, cont)
+        put_sos_resp.read()
+        self.assertEquals(put_sos_resp.status, 201)
+
+        resp = retry(put_swift, cont, obj, '*')
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        self.conts_to_delete.append(cont)
+        self.swift_objs_to_delete.append((cont, obj))
+
+        for key in self.cdn_url_dict:
+            if 'ssl' in key.lower() != self.use_ssl:
+                continue
+            cdn_url = self._get_header(key, put_sos_resp.getheaders())
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.mytest.com'})
+            body = resp.read()
+            self.assertEquals(
+                self._get_header('Access-Control-Allow-Origin',
+                                 resp.getheaders()), '*')
+
+            resp = retry(origin_options, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.mytest.com',
+                                  'Access-Control-Request-Method': 'GET'})
+            self.assertEquals(
+                self._get_header('Access-Control-Allow-Origin',
+                                 resp.getheaders()), '*')
+            self.assertEquals(
+                self._get_header('Access-Control-Allow-Methods',
+                                 resp.getheaders()), 'GET, HEAD, OPTIONS')
+            body = resp.read()
+
+            resp = retry(origin_options, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.mytest.com',
+                                  'Access-Control-Request-Method': 'PUT'})
+            self.assertEquals(resp.status, 401)
+
+        cont = 'cors_cont_single_origin'
+        obj = 'index.html'
+
+        put_sos_resp = retry(put_sos, cont)
+        put_sos_resp.read()
+        self.assertEquals(put_sos_resp.status // 100, 2)
+
+        resp = retry(put_swift, cont, obj, 'http://www.only-me.com')
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        self.conts_to_delete.append(cont)
+        self.swift_objs_to_delete.append((cont, obj))
+
+        for key in self.cdn_url_dict:
+            if 'ssl' in key.lower() != self.use_ssl:
+                continue
+            cdn_url = self._get_header(key, put_sos_resp.getheaders())
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.mytest.com'})
+            self.assertEquals(
+                self._get_header('Access-Control-Allow-Origin',
+                                 resp.getheaders()), None)
+            body = resp.read()
+
+            resp = retry(origin_options, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.mytest.com',
+                                  'Access-Control-Request-Method': 'GET'})
+            self.assertEquals(resp.status, 401)
+            resp.read()
+
+        for key in self.cdn_url_dict:
+            if 'ssl' in key.lower() != self.use_ssl:
+                continue
+            cdn_url = self._get_header(key, put_sos_resp.getheaders())
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj,
+                         headers={'Origin': 'http://www.only-me.com'})
+            self.assertEquals(
+                self._get_header('Access-Control-Allow-Origin',
+                                 resp.getheaders()), 'http://www.only-me.com')
+            body = resp.read()
+
+    def test_obj_cors(self):
+        # this is only for swift cluster that allow obj level cors
+        # headers to be set- if they aren't it'll be skipped
+
+        def put_swift(url, token, parsed, conn, cont, obj,
+                      cont_origin, obj_origin):
+            conn.request('PUT',
+                quote(parsed.path + '/%s' % cont), '',
+                {'X-Auth-Token': token,
+                 'X-Container-Meta-Access-Control-Allow-Origin': cont_origin})
+            resp = check_response(conn)
+            resp.read()
+            conn.request('PUT',
+                quote(parsed.path + '/%s/%snc' % (cont, obj)),
+                'testbody', {'X-Auth-Token': token, 'Content-Length': '8'})
+            resp = check_response(conn)
+            resp.read()
+            conn.request('PUT',
+                quote(parsed.path + '/%s/%syc' % (cont, obj)),
+                'testbody', {'X-Auth-Token': token, 'Content-Length': '8',
+                             'Access-Control-Allow-Origin': obj_origin})
+            return check_response(conn)
+
+        def put_sos(url, token, parsed, conn, cont):
+            conn.request('PUT',
+                quote(parsed.path + '/' + cont), '',
+                self._db_headers({'X-Auth-Token': token,
+                                  'X-TTL': str(60 * 60 * 24)}))
+            return check_response(conn)
+
+        def origin_get(url, token, parsed, conn, cdn_url, obj, headers={}):
+            cdn_parsed = urlparse(cdn_url)
+            conn.request('GET',
+                quote(cdn_parsed.path + '/' + obj), '',
+                self._origin_headers(headers, cdn_url))
+            return check_response(conn)
+
+        cont = 'cors_cont'
+        obj = 'index.html'
+
+        put_sos_resp = retry(put_sos, cont)
+        put_sos_resp.read()
+        self.assertEquals(put_sos_resp.status, 201)
+
+        resp = retry(put_swift, cont, obj, '*', 'http://www.obj-only.com')
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        self.conts_to_delete.append(cont)
+        self.swift_objs_to_delete.append((cont, obj + 'nc'))
+        self.swift_objs_to_delete.append((cont, obj + 'yc'))
+
+        for key in self.cdn_url_dict:
+            if 'ssl' in key.lower() != self.use_ssl:
+                continue
+            cdn_url = self._get_header(key, put_sos_resp.getheaders())
+            # do the reg request to see if the headers are set at all
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj + 'yc')
+            body = resp.read()
+            resp_headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            if 'access-control-allow-origin' not in resp_headers:
+                raise SkipTest
+
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj + 'nc',
+                         headers={'Origin': 'http://www.obj-only.com'})
+            body = resp.read()
+            resp_headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            self.assertEquals(resp_headers.get('access-control-allow-origin'),
+                              '*')
+
+            resp = retry(origin_get, cdn_url=cdn_url, obj=obj + 'yc',
+                         headers={'Origin': 'http://www.obj-only.com'})
+            body = resp.read()
+            resp_headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            self.assertEquals(resp_headers.get('access-control-allow-origin'),
+                              'http://www.obj-only.com')
 
     def test_origin_get(self):
 
@@ -356,7 +551,7 @@ class TestOrigin(unittest.TestCase):
                 self.assertEquals(resp.status // 100, 2)
                 self.assertEquals('testbody', body)
             except AssertionError:
-                print "!!!!!!!! DO YOU HAVE STATIC WEB TURNED ON? !!!!!!!!"
+                print "!!!! DO YOU HAVE STATIC WEB TURNED ON? (you should)!!!!"
                 raise
 
             resp = retry(origin_get, cdn_url=cdn_url, obj='hat')
