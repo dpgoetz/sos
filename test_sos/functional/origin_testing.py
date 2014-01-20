@@ -74,6 +74,7 @@ class TestOrigin(unittest.TestCase):
                 resp.read()
                 self.assertEquals(resp.status, 204)
         for cont in self.conts_to_delete:
+            print 'trying to delete: %s' % cont
             resp = retry(delete_sos, cont)
             resp.read()
             self.assertEquals(resp.status, 204)
@@ -90,7 +91,7 @@ class TestOrigin(unittest.TestCase):
         def put_sos(url, token, parsed, conn, cont):
             conn.request('PUT',
                 parsed.path + '/%s' % cont, '',
-                self._db_headers({'X-Auth-Token': token, 'X-TTL': 123456}))
+                self._db_headers({'X-Auth-Token': token, 'X-TTL': '123456'}))
             return check_response(conn)
 
         def head_sos(url, token, parsed, conn, cont):
@@ -122,14 +123,14 @@ class TestOrigin(unittest.TestCase):
             resp.read()
             conn.request('PUT',
                 quote(parsed.path + '/%s/%s' % (cont, obj)),
-                'testbody', {'X-Auth-Token': token, 'Content-Length': 8})
+                'testbody', {'X-Auth-Token': token, 'Content-Length': '8'})
             return check_response(conn)
 
         def put_sos(url, token, parsed, conn, cont):
             conn.request('PUT',
                 quote(parsed.path + '/' + cont), '',
                 self._db_headers({'X-Auth-Token': token,
-                                  'X-TTL': 60 * 60 * 24}))
+                                  'X-TTL': str(60 * 60 * 24)}))
             return check_response(conn)
 
         def head_swift(url, token, parsed, conn, cont, obj):
@@ -198,7 +199,7 @@ class TestOrigin(unittest.TestCase):
         xml_test = 'xte<st \u2661'
 
         def put_sos(url, token, parsed, conn, cont, headers={}):
-            headers.update({'X-Auth-Token': token, 'X-TTL': 60 * 60 * 24})
+            headers.update({'X-Auth-Token': token, 'X-TTL': str(60 * 60 * 24)})
             conn.request('PUT', parsed.path + '/' + cont, '',
                 self._db_headers(headers))
             return check_response(conn)
@@ -218,6 +219,12 @@ class TestOrigin(unittest.TestCase):
 
         def head_sos(url, token, parsed, conn, cont):
             conn.request('HEAD',
+                parsed.path + '/' + cont, '',
+                self._db_headers({'X-Auth-Token': token}))
+            return check_response(conn)
+
+        def delete_sos(url, token, parsed, conn, cont):
+            conn.request('DELETE',
                 parsed.path + '/' + cont, '',
                 self._db_headers({'X-Auth-Token': token}))
             return check_response(conn)
@@ -279,6 +286,18 @@ class TestOrigin(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 200)
 
+        del_resp = retry(delete_sos, quote(unitest.encode('utf8')))
+        del_resp.read()
+        self.assertEquals(del_resp.status, 204)
+
+        head_resp = retry(head_sos, quote(unitest.encode('utf8')))
+        head_resp.read()
+        self.assertEquals(head_resp.status, 404)
+
+        put_resp = retry(put_sos, quote(unitest.encode('utf8')))
+        put_resp.read()
+        self.assertEquals(put_resp.status, 201)
+
     def test_origin_301(self):
 
         if not self.run_static_web_test_because_of_hack:
@@ -294,7 +313,7 @@ class TestOrigin(unittest.TestCase):
             resp.read()
             conn.request('PUT',
                 quote(parsed.path + '/%s/hat/index.html' % (cont)),
-                'testbody', {'X-Auth-Token': token, 'Content-Length': 8})
+                'testbody', {'X-Auth-Token': token, 'Content-Length': '8'})
             resp = check_response(conn)
             resp.read()
 
@@ -302,7 +321,7 @@ class TestOrigin(unittest.TestCase):
             conn.request('PUT',
                 quote(parsed.path + '/' + cont), '',
                 self._db_headers({'X-Auth-Token': token,
-                                  'X-TTL': 60 * 60 * 24}))
+                                  'X-TTL': str(60 * 60 * 24)}))
             resp = check_response(conn)
             resp.read()
 

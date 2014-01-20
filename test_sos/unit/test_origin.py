@@ -163,13 +163,13 @@ class TestHashData(unittest.TestCase):
         h = origin.HashData('a', 'c', '123', True, False)
         self.assertEquals(origin.json.loads(h.get_json_str()),
             {'account': 'a', 'container': 'c', 'ttl': 123,
-             'cdn_enabled': True, 'logs_enabled': False})
+             'cdn_enabled': True, 'logs_enabled': False, 'deleted': False})
 
     def test_str(self):
         h = origin.HashData('a', 'c', '123', True, False)
         self.assertEquals(origin.json.loads(str(h)),
             {'account': 'a', 'container': 'c', 'ttl': 123,
-             'cdn_enabled': True, 'logs_enabled': False})
+             'cdn_enabled': True, 'logs_enabled': False, 'deleted': False})
 
     def test_create_from_json(self):
         h = origin.HashData.create_from_json(
@@ -447,7 +447,6 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('404 Not Found', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, '', test_put), # put to .hash file
-            ('204 No Content', {}, '', test_put), # put to .ref_hash file
             ('404 Not Found', {}, ''), # HEAD call, see if create cont
             ('204 No Content', {}, ''), # put to create container
             ('204 No Content', {}, ''), # put to add obj to listing
@@ -521,7 +520,6 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, ''), # put to .hash
-            ('204 No Content', {}, ''), # put to .ref_hash
             ('404 Not Found', {}, ''), # HEAD check to list container
             ('404 Not Found', {}, ''), # PUT to list container
             ]))
@@ -533,7 +531,6 @@ max_cdn_file_size = 0
         self.test_origin.app = FakeApp(iter([
             ('204 No Content', {}, ''), # call to _get_cdn_data
             ('204 No Content', {}, ''), # put to .hash
-            ('204 No Content', {}, ''), # put to .ref_hash
             ('204 No Content', {}, ''), # HEAD check to list container
             ('404 Not Found', {}, ''), # PUT to list container
             ]))
@@ -598,24 +595,6 @@ max_cdn_file_size = 0
         self.assertEquals(len(data), 1)
         self.assertEquals(resp.status_int, 200)
 
-    def test_origin_db_delete_disabled(self):
-        fake_conf = FakeConf(data='''[sos]
-origin_admin_key = unittest
-origin_db_hosts = origin_db.com
-origin_cdn_host_suffixes = origin_cdn.com
-origin_account = .origin
-max_cdn_file_size = 0
-hash_path_suffix = testing
-delete_enabled = false
-'''.split('\n'))
-        test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
-        test_origin = test_origin(FakeApp(iter([])))
-        req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
-            environ={'REQUEST_METHOD': 'DELETE',})
-        resp = req.get_response(test_origin)
-        self.assertEquals(resp.status_int, 405)
-
     def test_origin_db_delete_enabled(self):
         fake_conf = FakeConf(data='''[sos]
 origin_admin_key = unittest
@@ -624,12 +603,11 @@ origin_db_hosts = origin_db.com
 origin_account = .origin
 max_cdn_file_size = 0
 hash_path_suffix = testing
-delete_enabled = true
 '''.split('\n'))
         test_origin = origin.filter_factory(
             {'sos_conf': fake_conf})
         test_origin = test_origin(FakeApp(iter([
-            ('404 No Content', {}, ''),
+            ('204 No Content', {}, ''),
             ('204 No Content', {}, '')
             ])))
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
@@ -822,7 +800,7 @@ delete_enabled = true
                 'true'}
             self.test_origin.app = FakeApp(iter([ # no cdn call- hit memcache
                 ('204 No Content', {}, ''),
-                ('204 No Content', {}, ''), # put create ref cont
+#                ('204 No Content', {}, ''), # put create ref cont
                 ('404 Not Found', {}, ''), # HEAD call, see if create cont
                 ('204 No Content', {}, ''), # put create cont
                 ('204 No Content', {}, ''), # put to add obj to listing
