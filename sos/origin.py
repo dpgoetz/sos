@@ -462,6 +462,7 @@ class CdnHandler(OriginBase):
                 swift_path += object_name
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
+            env['swift.leave_relative_location'] = True
             env.pop('HTTP_ORIGIN', None)
             resp = make_pre_authed_request(
                 env, req.method, swift_path, headers=headers,
