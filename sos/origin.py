@@ -28,7 +28,7 @@ from swift.common.swob import Response, Request, HTTPBadRequest, \
     HTTPForbidden, HTTPNotFound, HTTPNoContent, HTTPOk, HTTPAccepted, \
     HTTPCreated, HTTPMethodNotAllowed, HTTPRequestedRangeNotSatisfiable, \
     HTTPInternalServerError, HTTPPreconditionFailed, HTTPNotModified, \
-    HTTPMovedPermanently
+    HTTPMovedPermanently, HTTPUnauthorized
 try:
     import simplejson as json
 except ImportError:
@@ -367,16 +367,6 @@ class AdminHandler(OriginBase):
                 if resp.status_int // 100 != 2:
                     raise Exception('Could not create %s container: %s %s' %
                                     (cont_name, path, resp.status))
-            for i in xrange(self.num_hash_cont):
-                cont_name = '.ref_hash_%d' % i
-                path = '/v1/%s/%s' % (self.origin_account, cont_name)
-                resp = make_pre_authed_request(
-                    req.environ, 'PUT', path,
-                    agent='SwiftOrigin',
-                    swift_source='SOS').get_response(self.app)
-                if resp.status_int // 100 != 2:
-                    raise Exception('Could not create %s container: %s %s' %
-                                    (cont_name, path, resp.status))
             return HTTPNoContent(request=req)
         return HTTPNotFound(request=req)
 
@@ -413,9 +403,15 @@ class CdnHandler(OriginBase):
         return headers
 
     def handle_request(self, env, req):
-        if req.method not in ('GET', 'HEAD'):
+        if req.method not in ('GET', 'HEAD', 'OPTIONS'):
             headers = self._getCacheHeaders(CACHE_BAD_URL)
             return HTTPMethodNotAllowed(request=req, headers=headers)
+        if req.method == 'OPTIONS' and \
+                req.headers.get('Access-Control-Request-Method') not in \
+                ('GET', 'HEAD', 'OPTIONS'):
+            headers = self._getCacheHeaders(CACHE_BAD_URL)
+            return HTTPUnauthorized(request=req,
+                                    headers={'Allow': 'GET, HEAD, OPTIONS'})
         if self.allowed_origin_remote_ips and \
                 req.remote_addr not in self.allowed_origin_remote_ips:
             raise OriginRequestNotAllowed(
@@ -463,7 +459,6 @@ class CdnHandler(OriginBase):
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
             env['swift.leave_relative_location'] = True
-            env.pop('HTTP_ORIGIN', None)
             resp = make_pre_authed_request(
                 env, req.method, swift_path, headers=headers,
                 agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
@@ -491,14 +486,18 @@ class CdnHandler(OriginBase):
             if resp.status_int == 416:
                 return HTTPRequestedRangeNotSatisfiable(
                     request=req, headers=self._getCacheHeaders(CACHE_404))
-            if resp.status_int // 100 == 2 or resp.status_int == 404:
+            if resp.status_int // 100 == 2 or resp.status_int == 404 or (
+                    resp.status_int == 401 and req.method == 'OPTIONS'):
                 if resp.content_length > self.max_cdn_file_size:
                     return HTTPBadRequest(
                         request=req, headers=self._getCacheHeaders(CACHE_404))
                 cdn_resp = Response(request=req, app_iter=resp.app_iter)
                 cdn_resp.status = resp.status_int
                 cdn_resp.headers.update(resp.headers)
-                if resp.status_int == 404:
+                for allow_header in ['Access-Control-Allow-Methods', 'Allow']:
+                    if allow_header in cdn_resp.headers:
+                        cdn_resp.headers[allow_header] = 'GET, HEAD, OPTIONS'
+                if resp.status_int in (404, 401):
                     cdn_resp.headers.update(self._getCacheHeaders(CACHE_404))
                 else:
                     cdn_resp.headers.update(

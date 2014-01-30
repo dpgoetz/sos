@@ -366,7 +366,7 @@ class TestOrigin(unittest.TestCase):
                      'X-Origin-Admin-Key': 'unittest'}).get_response(
                      self.test_origin)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(self.test_origin.app.calls, 201)
+        self.assertEquals(self.test_origin.app.calls, 101)
 
         self.test_origin.app = FakeApp(iter(
            [('404 Not Found', {}, '')]))

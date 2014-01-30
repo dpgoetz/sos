@@ -109,9 +109,9 @@ def retry(func, *args, **kwargs):
     raise Exception('No result after %s retries.' % retries)
 
 
-def check_response(conn):
+def check_response(conn, allow_401=False):
     resp = conn.getresponse()
-    if resp.status == 401:
+    if resp.status == 401 and not allow_401:
         resp.read()
         raise AuthError()
     elif resp.status // 100 == 5:
