@@ -1,3 +1,12 @@
+sos (1.1.16-1) lucid precise; urgency=low
+
+  * Allow deletes of the cdn containers. This will basically hide a
+    deleted, after setting cdn-enabled to False, so that to the user
+    its gone but we can still do lookups to the data.
+  * Use the override location thing so static web works
+
+ -- David Goetz <dpgoetz@gmail.com>  Fri, 30 Jan 2014 13:09:58 +0000
+
 sos (1.1.14-1) lucid precise; urgency=low
 
   * do not send Origin head down to swift for CDN calls. right
