@@ -21,7 +21,8 @@ import hmac
 import re
 
 from swift.common import utils
-from swift.common.utils import get_logger, TRUE_VALUES, readconf
+from swift.common.utils import get_logger, TRUE_VALUES, readconf, \
+    list_from_csv
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
 from swift.common.swob import Response, Request, HTTPBadRequest, \
@@ -898,6 +899,8 @@ class OriginServer(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route='sos-python')
+        self.valid_request_types = list_from_csv(
+            conf.get('valid_request_types', 'SOS_DB,SOS_ORIGIN,SOS_ADMIN'))
         self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [
@@ -932,15 +935,18 @@ class OriginServer(object):
         try:
             handler = None
             request_type = 'SOS_LOG'
-            if host in self.origin_db_hosts:
+            if host in self.origin_db_hosts and \
+                    'SOS_DB' in self.valid_request_types:
                 handler = OriginDbHandler(self.app, self.conf, self.logger)
                 request_type = 'SOS_DB'
-            for cdn_host_suffix in self.origin_cdn_host_suffixes:
-                if host.endswith(cdn_host_suffix):
-                    handler = CdnHandler(self.app, self.conf, self.logger)
-                    request_type = 'SOS_ORIGIN'
-                    break
-            if env['PATH_INFO'].startswith(self.origin_prefix):
+            if 'SOS_ORIGIN' in self.valid_request_types:
+                for cdn_host_suffix in self.origin_cdn_host_suffixes:
+                    if host.endswith(cdn_host_suffix):
+                        handler = CdnHandler(self.app, self.conf, self.logger)
+                        request_type = 'SOS_ORIGIN'
+                        break
+            if env['PATH_INFO'].startswith(self.origin_prefix) and \
+                    'SOS_ADMIN' in self.valid_request_types:
                 handler = AdminHandler(self.app, self.conf, self.logger)
                 request_type = 'SOS_ADMIN'
             if handler:
