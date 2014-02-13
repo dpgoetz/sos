@@ -16,7 +16,7 @@
 import gettext
 
 #: Version information (major, minor, revision[, 'dev']).
-version_info = (1, 1, 16,)
+version_info = (1, 1, 17,)
 #: Version string 'major.minor.revision'.
 version = __version__ = ".".join(map(str, version_info))
 gettext.install('sos')
