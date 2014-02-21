@@ -522,6 +522,8 @@ class OriginDbHandler(OriginBase):
         self.conf = conf
         self.logger = logger
         self.default_ttl = int(self.conf.get('default_ttl', 259200))
+        self.extra_header_for_deletes = self.conf.get(
+            'extra_header_for_deletes', 'x-remove-cdn-container')
 
     def _parse_container_listing(self, account, listing_dict, output_format,
                                  only_cdn_enabled=None):
@@ -695,6 +697,10 @@ class OriginDbHandler(OriginBase):
             return HTTPBadRequest(
                 'Invalid request. '
                 'URI format: /<api version>/<account>/<container>')
+        if self.extra_header_for_deletes and not req.headers.get(
+                self.extra_header_for_deletes, 'f').lower() in TRUE_VALUES:
+            # only do delete if header is set (assuming you want the header)
+            return HTTPMethodNotAllowed(request=req)
         hsh = self.hash_path(account, container)
         cdn_obj_path = self.get_hsh_obj_path(hsh)
 
