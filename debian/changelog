@@ -1,3 +1,9 @@
+sos (1.1.18-1) lucid precise; urgency=low
+
+  * caa0d02 do not do delete unless extra header is set
+
+ -- David Goetz <dpgoetz@gmail.com>  Thu, 13 Feb 2014 14:09:58 +0000
+
 sos (1.1.17-1) lucid precise; urgency=low
 
   * 47db29e Be able to split out functionality in the pipeline.
