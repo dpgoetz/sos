@@ -1,4 +1,16 @@
-sos (1.1.15-1) lucid precise; urgency=low
+sos (1.1.18-1) lucid precise; urgency=low
+
+  * caa0d02 do not do delete unless extra header is set
+
+ -- David Goetz <dpgoetz@gmail.com>  Thu, 13 Feb 2014 14:09:58 +0000
+
+sos (1.1.17-1) lucid precise; urgency=low
+
+  * 47db29e Be able to split out functionality in the pipeline.
+
+ -- David Goetz <dpgoetz@gmail.com>  Thu, 13 Feb 2014 13:09:58 +0000
+
+sos (1.1.16-1) lucid precise; urgency=low
 
   * Allow deletes of the cdn containers. This will basically hide a
     deleted, after setting cdn-enabled to False, so that to the user
