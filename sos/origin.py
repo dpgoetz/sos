@@ -204,7 +204,6 @@ class OriginBase(object):
         self.origin_account = conf.get('origin_account', '.origin')
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
-        self.token_length = int(self.conf.get('hmac_token_length', 30))
         self.min_ttl = int(conf.get('min_ttl', 15 * 60))
         self.max_ttl = int(conf.get('max_ttl', 365 * 24 * 60 * 60))
         self.log_access_requests = conf.get('log_access_requests', 't') in \
@@ -308,12 +307,7 @@ class OriginBase(object):
         if self.hmac_signed_url_secret:
             for key, url in cdn_urls.iteritems():
                 parsed = urlparse(url)
-                token = hmac.new(key=self.hmac_signed_url_secret,
-                                 msg=parsed.hostname,
-                                 digestmod=sha1).hexdigest()
-                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
-                                                token[:self.token_length],
-                                                parsed.hostname)
+                cdn_urls[key] = '%s://%s' % (parsed.scheme, parsed.hostname)
         return cdn_urls
 
 
@@ -904,8 +898,6 @@ class OriginServer(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route='sos-python')
-        self.valid_request_types = list_from_csv(
-            conf.get('valid_request_types', 'SOS_DB,SOS_ORIGIN,SOS_ADMIN'))
         self.conf = OriginServer._translate_conf(conf)
         self.origin_prefix = self.conf.get('origin_prefix', '/origin/')
         self.origin_db_hosts = [
@@ -940,24 +932,22 @@ class OriginServer(object):
         try:
             handler = None
             request_type = 'SOS_LOG'
-            if host in self.origin_db_hosts and \
-                    'SOS_DB' in self.valid_request_types:
+            if host in self.origin_db_hosts:
                 handler = OriginDbHandler(self.app, self.conf, self.logger)
                 request_type = 'SOS_DB'
-            if 'SOS_ORIGIN' in self.valid_request_types:
-                for cdn_host_suffix in self.origin_cdn_host_suffixes:
-                    if host.endswith(cdn_host_suffix):
-                        handler = CdnHandler(self.app, self.conf, self.logger)
-                        request_type = 'SOS_ORIGIN'
-                        break
-            if env['PATH_INFO'].startswith(self.origin_prefix) and \
-                    'SOS_ADMIN' in self.valid_request_types:
+            for cdn_host_suffix in self.origin_cdn_host_suffixes:
+                if host.endswith(cdn_host_suffix):
+                    handler = CdnHandler(self.app, self.conf, self.logger)
+                    request_type = 'SOS_ORIGIN'
+                    break
+            if env['PATH_INFO'].startswith(self.origin_prefix):
                 handler = AdminHandler(self.app, self.conf, self.logger)
                 request_type = 'SOS_ADMIN'
             if handler:
                 req = Request(env)
                 resp = handler.handle_request(env, req)
-                self._log_request(env, resp, request_type)
+                if request_type != 'SOS_ORIGIN':
+                    self._log_request(env, resp, request_type)
                 return resp(env, start_response)
 
         except InvalidConfiguration, e:

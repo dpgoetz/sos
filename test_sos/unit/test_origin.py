@@ -611,7 +611,8 @@ hash_path_suffix = testing
             ('204 No Content', {}, '')
             ])))
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
-            environ={'REQUEST_METHOD': 'DELETE',})
+            environ={'REQUEST_METHOD': 'DELETE',},
+            headers={'x-remove-cdn-container': 'true'})
         resp = req.get_response(test_origin)
         self.assertEquals(resp.status_int, 204)
 
@@ -668,7 +669,7 @@ delete_enabled = true
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'DELETE',})
         resp = req.get_response(test_origin)
-        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(resp.status_int, 405)
 
     def test_origin_db_delete_bad_request_second(self):
         fake_conf = FakeConf(data='''[sos]
@@ -689,7 +690,7 @@ delete_enabled = true
         req = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'DELETE',})
         resp = req.get_response(test_origin)
-        self.assertEquals(resp.status_int, 500)
+        self.assertEquals(resp.status_int, 405)
 
     def test_origin_db_get_fail(self):
         # bad listing lines are ignored
