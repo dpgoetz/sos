@@ -22,7 +22,7 @@ import re
 
 from swift.common import utils
 from swift.common.utils import get_logger, TRUE_VALUES, readconf, \
-    list_from_csv
+    list_from_csv, register_swift_info
 from swift.common.constraints import check_utf8
 from swift.common.wsgi import make_pre_authed_request
 from swift.common.swob import Response, Request, HTTPBadRequest, \
@@ -38,6 +38,13 @@ except ImportError:
 CACHE_BAD_URL = 86400
 CACHE_404 = 30
 MEMCACHE_TIMEOUT = 600
+
+
+# config defaults
+MIN_TTL = 15 * 60
+MAX_TTL = 365 * 24 * 60 * 60
+DEFAULT_TTL = 259200  # 72 hours
+MAX_CDN_FILE_SIZE = 10 * 1024 ** 3
 
 
 class InvalidContentType(Exception):
@@ -205,8 +212,8 @@ class OriginBase(object):
         self.num_hash_cont = int(conf.get('number_hash_id_containers', 100))
         self.hmac_signed_url_secret = self.conf.get('hmac_signed_url_secret')
         self.token_length = int(self.conf.get('hmac_token_length', 30))
-        self.min_ttl = int(conf.get('min_ttl', 15 * 60))
-        self.max_ttl = int(conf.get('max_ttl', 365 * 24 * 60 * 60))
+        self.min_ttl = int(conf.get('min_ttl', MIN_TTL))
+        self.max_ttl = int(conf.get('max_ttl', MAX_TTL))
         self.log_access_requests = conf.get('log_access_requests', 't') in \
             TRUE_VALUES
         self.number_dns_shards = int(conf.get('number_dns_shards', 100))
@@ -378,7 +385,7 @@ class CdnHandler(OriginBase):
         OriginBase.__init__(self, app, conf, logger)
         self.logger = logger
         self.max_cdn_file_size = int(conf.get('max_cdn_file_size',
-                                              10 * 1024 ** 3))
+                                              MAX_CDN_FILE_SIZE))
         self.allowed_origin_remote_ips = []
         remote_ips = conf.get('allowed_origin_remote_ips')
         if remote_ips:
@@ -521,7 +528,7 @@ class OriginDbHandler(OriginBase):
         OriginBase.__init__(self, app, conf, logger)
         self.conf = conf
         self.logger = logger
-        self.default_ttl = int(self.conf.get('default_ttl', 259200))
+        self.default_ttl = int(self.conf.get('default_ttl', DEFAULT_TTL))
         self.extra_header_for_deletes = self.conf.get(
             'extra_header_for_deletes', 'x-remove-cdn-container')
 
@@ -1015,6 +1022,18 @@ def filter_factory(global_conf, **local_conf):
     """:returns: a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+
+    xconf = OriginServer._translate_conf(conf)
+    min_ttl = int(xconf.get('min_ttl', MIN_TTL))
+    max_ttl = int(xconf.get('max_ttl', MAX_TTL))
+    default_ttl = int(xconf.get('default_ttl', DEFAULT_TTL))
+    max_cdn_file_size = int(xconf.get('max_cdn_file_size',
+                                     MAX_CDN_FILE_SIZE))
+    register_swift_info('cdn_origin',
+                        min_ttl=min_ttl,
+                        max_ttl=max_ttl,
+                        default_ttl=default_ttl,
+                        max_cdn_file_size=max_cdn_file_size)
 
     def origin(app):
         return OriginServer(app, conf)

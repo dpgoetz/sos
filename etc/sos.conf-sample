@@ -13,7 +13,7 @@ hash_path_suffix = sos_suffix
 #origin_prefix = /origin/
 #default_ttl = 259200
 #min_ttl = 900
-#max_ttl = 3155692600
+#max_ttl = 31536000
 #max_cdn_file_size = 10737418240
 #number_dns_shards = 100
 # Enable DELETE method
