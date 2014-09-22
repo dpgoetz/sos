@@ -1,19 +1,11 @@
 # Example of changes needed to swift's proxy-server.conf
 [pipeline:main]
-pipeline = healthcheck cache sos-cdn tempauth sos-manage proxy-server
+pipeline = healthcheck cache tempauth sos proxy-server
+# if using slo/dlo/staticweb, put sos to the left of them
 
-[filter:sos-cdn]
+[filter:sos]
 use = egg:sos#sos
 sos_conf = /etc/swift/sos.conf
 set log_name = python-sos
 set log_facility = LOG_LOCAL6
 set log_level = INFO
-valid_request_types = SOS_ORIGIN
-
-[filter:sos-manage]
-use = egg:sos#sos
-sos_conf = /etc/swift/sos.conf
-set log_name = python-sos
-set log_facility = LOG_LOCAL6
-set log_level = INFO
-valid_request_types = SOS_DB, SOS_ADMIN
