@@ -11,6 +11,7 @@ import datetime
 from swift.common.utils import urlparse, TRUE_VALUES
 from xml.dom.minidom import parseString
 from xml.sax import saxutils
+import json
 
 from sos_testing import check_response, retry, skip, swift_test_user, \
     swift_test_auth, sos_conf, conf
@@ -559,6 +560,30 @@ class TestOrigin(unittest.TestCase):
             self.assertEquals(resp.status, 301)
             self.assertEquals(self._get_header('Location', resp.getheaders()),
                               '/hat/')
+
+    def test_registered_info(self):
+
+        def get_info(url, token, parsed, conn):
+            conn.request('GET', '/info')
+            return check_response(conn)
+
+        resp = retry(get_info)
+        if resp.status // 100 == 4:
+            # error fething /info. It may not be enabled on this cluster
+            raise SkipTest()
+        body = resp.read()
+        info = json.loads(body)
+        try:
+            cdn_info = info['cdn_origin']
+        except KeyError:
+            self.fail('"cdn_origin" key not found in the /info response')
+        for key in 'min_ttl max_ttl default_ttl max_cdn_file_size'.split():
+            try:
+                int(cdn_info[key])
+            except ValueError:
+                self.fail('%s not set to an integer' % key)
+            except KeyError:
+                self.fail('%s not set in the /info response' % key)
 
 if __name__ == '__main__':
     unittest.main()
