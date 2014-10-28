@@ -6,7 +6,6 @@ XSBC-Original-Maintainer: Marcelo Martins <mmartins@racklabs.com>
 Build-Depends: debhelper (>= 7.0.50~),
  python-all,
  python-sphinx (>= 1.0),
- python-webob (>= 0.9.7.1~hg20100111-1~racklabs1),
  python-support (>= 0.90.0),
  python (>= 2.6),
  python-setuptools
@@ -22,6 +21,7 @@ Depends: ${python:Depends}, ${misc:Depends},
  python-support (>= 0.90.0)
 Provides: ${python:Provides}
 Description: Swift Origin Server
+ Swift Origin Server for serving CDN requests
 
 Package: python-sos-doc
 Architecture: all
