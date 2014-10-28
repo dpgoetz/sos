@@ -217,6 +217,8 @@ class OriginBase(object):
         self.log_access_requests = conf.get('log_access_requests', 't') in \
             TRUE_VALUES
         self.number_dns_shards = int(conf.get('number_dns_shards', 100))
+        self.forward_origin = conf.get('forward_origin', 't') in \
+            TRUE_VALUES
         if not self.hash_suffix:
             raise InvalidConfiguration('Please provide a hash_path_suffix')
 
@@ -462,6 +464,8 @@ class CdnHandler(OriginBase):
             headers = self._getCdnHeaders(req)
             env['swift.source'] = 'SOS'
             env['swift.leave_relative_location'] = True
+            if not self.forward_origin:
+                env.pop('HTTP_ORIGIN', None)
             resp = make_pre_authed_request(
                 env, req.method, swift_path, headers=headers,
                 agent='SwiftOrigin', swift_source='SOS').get_response(self.app)
