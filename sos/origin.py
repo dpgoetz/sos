@@ -317,7 +317,12 @@ class OriginBase(object):
         if self.hmac_signed_url_secret:
             for key, url in cdn_urls.iteritems():
                 parsed = urlparse(url)
-                cdn_urls[key] = '%s://%s' % (parsed.scheme, parsed.hostname)
+                token = hmac.new(key=self.hmac_signed_url_secret,
+                                 msg=parsed.hostname,
+                                 digestmod=sha1).hexdigest()
+                cdn_urls[key] = '%s://%s-%s' % (parsed.scheme,
+                                                token[:self.token_length],
+                                                parsed.hostname)
         return cdn_urls
 
 
@@ -1018,17 +1023,18 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
 
-    xconf = OriginServer._translate_conf(conf)
-    min_ttl = int(xconf.get('min_ttl', MIN_TTL))
-    max_ttl = int(xconf.get('max_ttl', MAX_TTL))
-    default_ttl = int(xconf.get('default_ttl', DEFAULT_TTL))
-    max_cdn_file_size = int(xconf.get('max_cdn_file_size',
-                                     MAX_CDN_FILE_SIZE))
-    register_swift_info('cdn_origin',
-                        min_ttl=min_ttl,
-                        max_ttl=max_ttl,
-                        default_ttl=default_ttl,
-                        max_cdn_file_size=max_cdn_file_size)
+    if conf.get('register_info', True):
+        xconf = OriginServer._translate_conf(conf)
+        min_ttl = int(xconf.get('min_ttl', MIN_TTL))
+        max_ttl = int(xconf.get('max_ttl', MAX_TTL))
+        default_ttl = int(xconf.get('default_ttl', DEFAULT_TTL))
+        max_cdn_file_size = int(xconf.get('max_cdn_file_size',
+                                         MAX_CDN_FILE_SIZE))
+        register_swift_info('cdn_origin',
+                            min_ttl=min_ttl,
+                            max_ttl=max_ttl,
+                            default_ttl=default_ttl,
+                            max_cdn_file_size=max_cdn_file_size)
 
     def origin(app):
         return OriginServer(app, conf)
