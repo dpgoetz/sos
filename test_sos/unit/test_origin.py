@@ -306,7 +306,7 @@ class TestOrigin(unittest.TestCase):
     def setUp(self):
         fake_conf = FakeConf()
         self.test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})(FakeApp())
+            {'sos_conf': fake_conf, 'register_info': False})(FakeApp())
 
 #    def test_valid_setup(self):
 #        fake_conf = FakeConf(data=['[sos]'])
@@ -388,7 +388,7 @@ class TestOrigin(unittest.TestCase):
         fake_conf = FakeConf(data=['[sos]',
             'origin_cdn_host_suffixes = origin_cdn.com'])
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})(FakeApp())
+            {'sos_conf': fake_conf, 'register_info': False})(FakeApp())
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
         self.assertEquals(resp.status_int, 404)
@@ -401,7 +401,7 @@ origin_account = .origin
 max_cdn_file_size = 0
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})(FakeApp())
+            {'sos_conf': fake_conf, 'register_info': False})(FakeApp())
         resp = Request.blank('http://origin_db.com:8080/v1/acc/cont',
             environ={'REQUEST_METHOD': 'POST'}).get_response(test_origin)
         self.assertEquals(resp.status_int, 500)
@@ -413,7 +413,7 @@ origin_account = .origin
 max_cdn_file_size = 0
 '''.split('\n'))
         factory = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         self.assertRaises(origin.InvalidConfiguration, factory, FakeApp())
 
     def test_origin_db_post_fail(self):
@@ -605,7 +605,7 @@ max_cdn_file_size = 0
 hash_path_suffix = testing
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         test_origin = test_origin(FakeApp(iter([
             ('204 No Content', {}, ''),
             ('204 No Content', {}, '')
@@ -632,7 +632,7 @@ hash_path_suffix = testing
 delete_enabled = true
 '''.split('\n'))
             test_origin = origin.filter_factory(
-                {'sos_conf': fake_conf})
+                {'sos_conf': fake_conf, 'register_info': False})
             test_origin = test_origin(FakeApp(iter([
                 ('404 No Content', {}, ''),
                 ('204 No Content', {}, '')
@@ -657,7 +657,7 @@ hash_path_suffix = testing
 delete_enabled = true
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         test_origin = test_origin(FakeApp(iter([
             ('500 Internal Server Error', {}, '')
             ])))
@@ -682,7 +682,7 @@ hash_path_suffix = testing
 delete_enabled = true
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         test_origin = test_origin(FakeApp(iter([
             ('204 No Content', {}, ''),
             ('500 Internal Server Error', {}, '')
@@ -843,7 +843,7 @@ max_cdn_file_size = 0
 hash_path_suffix = testing
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         listing_data = json.dumps([
             {'name': 'test1', 'content_type': 'x-cdn/true1234-false'},
             {'name': 'test2', 'content_type': 'x-cdn/true-2234-false'}])
@@ -1077,7 +1077,7 @@ hash_path_suffix = testing
 regex_0 = ^http://origin_cdn\.com.*\/h(?P<cdn_hash>\w+)\/r\d+\/?(?P<object_name>(.+))?$
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         test_origin = test_origin(FakeApp(iter([
                 ('204 No Content', {}, prev_data), # call to _get_cdn_data
                 ('200 Ok', {'Content-Length': 14}, 'Test obj body.')])))
@@ -1097,7 +1097,7 @@ max_cdn_file_size = 0
 hash_path_suffix = testing
 '''.split('\n'))
         test_origin = origin.filter_factory(
-            {'sos_conf': fake_conf})
+            {'sos_conf': fake_conf, 'register_info': False})
         test_origin = test_origin(FakeApp(iter([ ])))
         req = Request.blank('http://1234.r3.origin_cdn.com:8080/obj1.jpg',
             environ={'REQUEST_METHOD': 'GET'})
