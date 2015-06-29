@@ -1,3 +1,9 @@
+sos (1.1.20-1) lucid precise; urgency=low
+
+  * b60699e make sos ignore hosts if you want it to (cdnaas)
+
+ -- David Goetz <dpgoetz@gmail.com>  Tue, 21 Jul 2015 14:09:58 +0000
+
 sos (1.1.19-1) lucid precise; urgency=low
 
   * 60401e3 putting token back in :( and fixed unit tests
