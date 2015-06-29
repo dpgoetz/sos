@@ -926,6 +926,10 @@ class OriginServer(object):
             if host.strip()]
         if not self.origin_cdn_host_suffixes:
             raise InvalidConfiguration('Please add origin_cdn_host_suffixes')
+        self.ignore_hosts = [
+            host.strip() for host in
+            self.conf.get('ignore_hosts', '').split(',')
+            if host.strip()]
         self.log_access_requests = \
             self.conf.get('log_access_requests', 't') in TRUE_VALUES
 
@@ -953,7 +957,8 @@ class OriginServer(object):
                 handler = OriginDbHandler(self.app, self.conf, self.logger)
                 request_type = 'SOS_DB'
             for cdn_host_suffix in self.origin_cdn_host_suffixes:
-                if host.endswith(cdn_host_suffix):
+                if host.endswith(cdn_host_suffix) and \
+                        host not in self.ignore_hosts:
                     handler = CdnHandler(self.app, self.conf, self.logger)
                     request_type = 'SOS_ORIGIN'
                     break
